@@ -1,0 +1,50 @@
+TLS (Transport Layer Security) is a cryptographic protocol designed to provide three main things over a computer network: Encryption (keeping data private), Integrity (ensuring data isn't tampered with), and Authentication (verifying the identity of the parties). It is the successor to SSL.
+
+When you connect to a website via HTTPS, your browser and the server perform a TLS Handshake. This process allows them to agree on encryption settings and establish a secure connection before any actual data (like your login info) is sent.
+The Steps of the Handshake:
+
+    Client Hello: The client (your browser) sends a list of supported TLS versions, a list of "Cipher Suites" (encryption algorithms), and a "Client Random" number.
+
+    Server Hello: The server chooses the best TLS version and Cipher Suite from the client’s list and sends its own "Server Random" number.
+
+    Certificate Exchange: The server sends its digital certificate. This contains the server's Public Key and is signed by a Certificate Authority (CA) to prove the server is who it says it is.
+
+    Key Exchange: The client generates a Premaster Secret, encrypts it with the server’s Public Key, and sends it back. Only the server can decrypt this using its Private Key.
+
+    Session Key Derivation: Both sides now have the Client Random, Server Random, and Premaster Secret. They use these to calculate the Master Secret. From this, they derive Symmetric Session Keys used to encrypt the actual data.
+
+    Finished: Both sides send an encrypted "Finished" message to verify the handshake was successful.
+
+The SSL/TLS Renegotiation Attack
+
+A Renegotiation Attack occurs when an attacker triggers a new handshake after the initial secure connection has already been established. Historically, the protocol did not properly "bind" the new handshake to the old one, leading to two main threats:
+1. Plaintext Injection (MITM)
+
+In this scenario, an attacker intercepts your connection. They start their own session with the server and send a partial command (e.g., POST /transfer.php?to=attacker). They then trigger a renegotiation and forward your original handshake to the server.
+
+The server "splices" these together. To the server, it looks like you sent the attacker's command followed by your own authentication cookies.
+2. Denial of Service (DoS)
+
+As you noted in your logic, cryptography is CPU-heavy. A handshake requires significantly more processing power from the server than from the client.
+
+    The attacker initiates thousands of renegotiation requests over a single connection.
+
+    The server’s CPU becomes pegged at 100% trying to perform the RSA/Diffie-Hellman math for each request.
+
+    Legitimate users can no longer connect because the server is overwhelmed.
+
+How to spot it in your PCAP (ssl.record.content_type == 22)
+
+When analyzing your SSL_renegotiation_edited.pcapng file, you are looking for re-handshaking.
+Normal Traffic	                                Attack Traffic
+Handshake occurs once at the start.	            Multiple Client Hellos appear mid-stream.
+Followed by Application Data.	                  Repeated Handshake messages within the same TCP stream.
+Connection is stable.	                          High volume of Client Key Exchange packets from one IP.
+
+Summary of Indicators
+
+    Multiple Client Hellos: Seeing type 1 (Client Hello) multiple times without a TCP Close/Reset.
+
+    Encrypted Alerts: Often, if a server realizes something is wrong, it sends an encrypted alert before closing the connection.
+
+    Resource Exhaustion: If the PCAP shows increasing response times from the server (Server Hello taking longer and longer), it indicates a DoS attempt.
