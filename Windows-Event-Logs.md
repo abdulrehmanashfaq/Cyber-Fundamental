@@ -8,7 +8,7 @@ Windows Event Logs are the central nervous system of Windows monitoring, acting 
 * **Access**:
     * **GUI**: Via the **Windows Event Viewer** (requires Administrative privileges).
     * **Programmatic**: Via APIs (e.g., Windows Event Log API).
-    * **Offline Analysis**: You can open previously saved `.evtx` files from other machines in the "Saved Logs" section.
+    * **Offline Analysis**: You can open previously saved `.evtx` files from other machines.
 
 ---
 
@@ -32,10 +32,7 @@ Every log entry (Event) follows a standard structure. Understanding these fields
 * **Source**: The software or component that generated the log.
 * **Event ID**: A unique numeric identifier defining the specific type of event.
 * **Level**: Severity classification (**Information**, **Warning**, **Error**, **Critical**, **Verbose**).
-* **Keywords**: Broad "flags" for categorization (e.g., "Audit Success"). Useful for high-level filtering.
 * **User**: The user account associated with the event (often "SYSTEM" or a specific username).
-* **OpCode**: Identifies the specific operation being reported.
-* **Computer**: The machine name where the event occurred.
 * **XML Data**: The raw, structured format containing all visible fields plus hidden data.
 
 ---
@@ -75,34 +72,60 @@ An SDDL string is a text-based representation of security. Example: `S:ARAI(AU;S
 
 [Reference: Understanding SDDL Syntax - Microsoft Docs](https://docs.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-string-format)
 
-### C. Logon Analysis (Event 4624)
-* **Logon ID**: A unique hex code (e.g., `0x3E7`) identifying a specific session.
-* **Logon Type**: A numeric code explaining *how* the user logged in.
-    * **Type 2**: Interactive (Keyboard/Screen).
-    * **Type 3**: Network (Accessing a shared folder).
-    * **Type 5**: Service (Background task startup).
+### C. Special Logons & Privilege Constants
+A **Special Logon (Event 4672)** occurs when a user logs in with administrative "Privilege Constants." Unlike **Permissions** (which apply to objects), **Privileges** apply to the entire system.
 
-[Reference: Event ID 4624 (Logon) Details - Microsoft Docs](https://docs.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4624)
+#### The "Big 5" Critical Privileges
+| Privilege Constant | Security Significance |
+| :--- | :--- |
+| **SeDebugPrivilege** | Allows memory inspection of any process. Used to steal hashes from `lsass.exe`. |
+| **SeImpersonatePrivilege** | Core requirement for "Potato" exploits to escalate from Service to SYSTEM. |
+| **SeBackupPrivilege** | Bypasses all DACL permissions to read any file on the disk. |
+| **SeTakeOwnershipPrivilege** | Allows a user to become the "Owner" of any object and rewrite its ACLs. |
+| **SeLoadDriverPrivilege** | Allows loading kernel-mode drivers (potential rootkits). |
+
+[Reference: Privilege Constants (User Rights) - Microsoft Docs](https://learn.microsoft.com/en-us/windows/win32/secauthz/privilege-constants)
 
 ---
 
 ## 5. Essential Windows Event IDs (Cheat Sheet)
 
-### System Health & Status
+### Windows System Logs
 | Event ID | Description | Significance |
 | :--- | :--- | :--- |
-| **1074** | System Shutdown/Restart | Detects unexpected reboots (malware or unauthorized access). |
-| **7045** | New Service Installed | **High Priority.** Malware often installs itself for persistence. |
+| **1074** | System Shutdown/Restart | Detects unexpected reboots, revealing malware or unauthorized access. |
+| **6005** | Event Log Service Started | Marks system boot-up; used to detect unauthorized reboots. |
+| **6006** | Event Log Service Stopped | Typically system shutdown; abnormal occurrences suggest covering illicit activity. |
+| **6013** | Windows Uptime | Logged once daily; shorter uptime indicates a reboot and potential intrusion. |
+| **7040** | Service Status Change | Indicates startup type change; could be a sign of system tampering. |
 
-### Security & Intrusion Detection
+### Windows Security Logs
 | Event ID | Description | Significance |
 | :--- | :--- | :--- |
-| **1102** | Audit Log Cleared | **Critical.** Attacker trying to cover tracks. |
-| **4625** | Failed Logon | Bursts indicate Brute-Force attacks. |
-| **4719** | Audit Policy Changed | **Critical.** Attacker disabling logging to hide activity. |
-| **4907** | Object's Audit Policy Changed | Shows changes to SACLs using SDDL strings. |
+| **1102** | Audit Log Cleared | **Critical.** Often indicates an attempt to remove evidence of intrusion. |
+| **4624** | Successful Logon | Vital for establishing baseline normal user behavior. |
+| **4625** | Failed Logon | Multiple failures indicate a brute-force attack in progress. |
+| **4648** | Logon with Explicit Creds | Can indicate lateral movement within a network. |
+| **4656** | Object Handle Requested | Useful for detecting attempts to access sensitive resources. |
+| **4672** | Special Privileges Assigned | Tracks super user login to ensure privileges are not abused. |
+| **4698 / 4702** | Scheduled Task Created/Updated | Detects persistence mechanisms used by attackers to run malicious code. |
+| **4700 / 4701** | Scheduled Task Enabled/Disabled | Insight into suspicious manipulation of scheduled tasks. |
+| **4719** | Audit Policy Changed | **Critical.** Sign of someone trying to hide tracks by disabling auditing. |
+| **4738** | User Account Changed | Sign of account takeover or insider threats. |
+| **4771 / 4776** | Kerberos/DC Cred Validation Failure | Multiple failures suggest a brute-force attack. |
+| **5140 / 5145** | Network Share Access/Check | Identifies unauthorized access or network mapping for future exploits. |
+| **5142** | Network Share Added | Unauthorized shares could be used to exfiltrate data. |
+| **5157** | WFP Blocked Connection | Identifies blocked malicious traffic on the network. |
+| **7045** | Service Installed | Unknown services suggest malware installation for persistence. |
 
-[Reference: Appendix L: Events to Monitor - Microsoft Docs](https://docs.microsoft.com/en-us/windows-server/identity/ad-ds/plan/appendix-l--events-to-monitor)
+### Microsoft Defender (Antivirus) Logs
+| Event ID | Description | Significance |
+| :--- | :--- | :--- |
+| **1116** | Malware Detected | Logs when Defender finds malware; surge indicates a targeted attack. |
+| **1118** | Remediation Started | Process of removing or quarantining detected malware. |
+| **1119** | Remediation Succeeded | Confirms identified threats are effectively neutralized. |
+| **1120** | Remediation Failed | **High Priority.** Indicates threats persist and need immediate address. |
+| **5001** | Real-time Protection Changed | Unauthorized changes suggest attempts to undermine Defender. |
 
 ---
 
@@ -119,5 +142,5 @@ An SDDL string is a text-based representation of security. Example: `S:ARAI(AU;S
 
 ## 7. Best Practices for Professionals
 1. **Know Your "Normal"**: You cannot spot anomalies if you don't know what normal traffic looks like.
-2. **Centralize Logs**: Forward logs to a SIEM rather than checking individual machines.
-3. **Correlate**: A single event is rarely enough. Combine data (e.g., *Failed Logon* + *New Service*).
+2. **Monitor "Silence"**: The absence of logs or stopped services is as important as the logs themselves.
+3. **Correlate**: A single event is rarely enough. Combine data (e.g., *Failed Logon* + *Special Logon*).
