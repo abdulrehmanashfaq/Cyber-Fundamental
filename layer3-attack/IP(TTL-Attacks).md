@@ -1,0 +1,59 @@
+## IP Time-to-Live (TTL) Attacks
+
+TTL manipulation is a sophisticated evasion technique used to bypass security boundaries like firewalls, IDS, and IPS systems.
+
+---
+
+### 1. The Evasion Mechanism
+
+- **Packet crafting**  
+  The attacker intentionally sets an unnaturally low TTL value (e.g., 1, 2, or 3) in the IP header.
+
+- **Intentional expiration**  
+  The goal is for the packet to "die" (TTL reaches zero) after passing through specific network hops but **before** it reaches a security monitoring point or the final destination.
+
+- **The "death message"**  
+  When the packet expires, the router at that specific hop discards it and generates an **ICMP Time Exceeded (Type 11)** message.
+
+- **Reconnaissance**  
+  This "Time Exceeded" message is sent back to the source IP provided in the original packet.  
+  If an attacker spoofs an internal IP, they can force internal devices to receive these "death messages," mapping out the path without the IDS ever seeing the "malicious" part of the data.
+
+---
+
+### 2. Detection and Analysis in Wireshark
+
+Detection is often difficult in small quantities but becomes obvious during high-volume port scanning.
+
+- **Low TTL values**  
+  Open the IPv4 header in Wireshark; packets arriving from external sources with a TTL of **1–5** are almost certainly crafted.
+
+- **Path mapping indicators**  
+  A high volume of ICMP Type 11 messages originating from your own gateway or routers.
+
+- **Successful evasion**  
+  If you see a SYN/ACK returned from a legitimate service port despite the original probe having a suspicious TTL, the attacker has successfully bypassed a control.
+
+---
+
+### 3. Recommended Controls
+
+- **Minimum TTL filtering**  
+  Implement a security control to discard or filter packets that arrive with a TTL below a specific threshold (e.g., anything less than 5–10 from an external source).
+
+- **Path-based analysis**  
+  Watch for mismatches between the expected hop count of a source and the actual TTL received.
+
+---
+
+### 4. Wireshark Filter Cheat Sheet
+
+Include these filters to help analyze the `ip_ttl.pcapng` file:
+
+| **Goal**               | **Filter**                          |
+|------------------------|-------------------------------------|
+| Find low TTL packets   | `ip.ttl < 10`                      |
+| Find "death messages"  | `icmp.type == 11`                  |
+| Spot evasion success   | `tcp.flags.syn == 1 && tcp.flags.ack == 1 && ip.ttl < 64` |
+
+
