@@ -47,12 +47,33 @@ Every log entry (Event) follows a standard structure. Understanding these fields
 * **XML Queries**: Used for granular control via the "Filter Current Log" menu.
     * *Use Case*: Filter by `SubjectLogonId` (e.g., "0x3E7") to track a specific session across multiple events.
 
-### B. Understanding Access Control (SACLs)
+### B. Understanding Access Control (SDDL & ACLs)
 To understand *why* a security log was generated, you must distinguish between permissions and auditing.
 * **DACL (Discretionary Access Control List)**: Defines **Permissions** (Who is allowed/denied?).
 * **SACL (System Access Control List)**: Defines **Auditing** (Who gets logged?).
-* **NewSd / OldSd**: Found in logs like Event ID 4907. These fields show the Security Descriptor *before* and *after* a change.
-* **uderstand more here https://learn.microsoft.com/en-us/windows/win32/secauthz/access-control-lists
+* **NewSd / OldSd**: Found in logs like **Event ID 4907**. These fields show the Security Descriptor in **SDDL** format.
+
+#### Deep Dive: Decoding SDDL Strings
+An SDDL string is a text-based representation of security. Example: `S:ARAI(AU;SAFA;DCLCRPCRSDWDWO;;;WD)`
+
+**1. The Header**
+* **O:** Owner | **G:** Group | **D:** DACL | **S:** SACL
+* **AR/AI**: Indicates if permissions are inherited or required for children.
+
+**2. The ACE (Access Control Entry) Structure**
+`([Type];[Flags];[Rights];[ObjectGUID];[InheritGUID];[Account])`
+
+
+
+**3. Common Shorthand Codes**
+| Code | Type/Permission | Account (Trustee) |
+| :--- | :--- | :--- |
+| **A / D** | Allow / Deny | **BA**: Built-in Admins |
+| **AU** | Audit (SACL only) | **SY**: Local System |
+| **GA / FA** | Full Control | **WD**: Everyone (World) |
+| **SA / FA** | Success / Failure Audit | **AU**: Authenticated Users |
+
+[Reference: Understanding SDDL Syntax - Microsoft Docs](https://docs.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-string-format)
 
 ### C. Logon Analysis (Event 4624)
 * **Logon ID**: A unique hex code (e.g., `0x3E7`) identifying a specific session.
@@ -60,6 +81,8 @@ To understand *why* a security log was generated, you must distinguish between p
     * **Type 2**: Interactive (Keyboard/Screen).
     * **Type 3**: Network (Accessing a shared folder).
     * **Type 5**: Service (Background task startup).
+
+[Reference: Event ID 4624 (Logon) Details - Microsoft Docs](https://docs.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4624)
 
 ---
 
@@ -69,43 +92,32 @@ To understand *why* a security log was generated, you must distinguish between p
 | Event ID | Description | Significance |
 | :--- | :--- | :--- |
 | **1074** | System Shutdown/Restart | Detects unexpected reboots (malware or unauthorized access). |
-| **6005** | Event Log Service Started | Indicates system boot-up. |
-| **6006** | Event Log Service Stopped | Indicates system shutdown. Unexpected stops are suspicious. |
-| **6013** | System Uptime | Logged once daily. Short uptime implies a recent reboot. |
-| **7040** | Service Status Change | Detects if critical services are disabled. |
-| **7045** | New Service Installed | **High Priority.** Malware often installs itself as a service for persistence. |
+| **7045** | New Service Installed | **High Priority.** Malware often installs itself for persistence. |
 
 ### Security & Intrusion Detection
 | Event ID | Description | Significance |
 | :--- | :--- | :--- |
-| **1102** | Audit Log Cleared | **Critical.** Often indicates an attacker trying to cover tracks. |
-| **4624** | Successful Logon | Baselines normal user behavior (time, location). |
-| **4625** | Failed Logon | Bursts of these indicate Brute-Force attacks. |
-| **4648** | Logon with Explicit Creds | Potential lateral movement (attacker using stolen creds). |
-| **4672** | Special Privileges Assigned | Indicates a "Super User" / Admin logon. Watch for abuse. |
+| **1102** | Audit Log Cleared | **Critical.** Attacker trying to cover tracks. |
+| **4625** | Failed Logon | Bursts indicate Brute-Force attacks. |
 | **4719** | Audit Policy Changed | **Critical.** Attacker disabling logging to hide activity. |
-| **4738** | User Account Changed | Detects privilege escalation or account takeover. |
-| **4771** | Kerberos Pre-Auth Failed | Similar to 4625 but for Kerberos; indicates brute-force attempts. |
-| **5140** | Network Share Accessed | Detects unauthorized mapping/access of network drives. |
+| **4907** | Object's Audit Policy Changed | Shows changes to SACLs using SDDL strings. |
 
-### Defender / Antivirus
-| Event ID | Description | Significance |
-| :--- | :--- | :--- |
-| **1116** | Malware Detected | Defender found a threat. |
-| **1118** | Remediation Started | Defender is trying to remove the threat. |
-| **1119** | Remediation Success | The threat was neutralized. |
-| **1120** | Remediation Failed | **Action Required.** The malware persists despite AV attempts. |
-| **5001** | Real-time Protection Changed | Detects attempts to disable Antivirus protection. |
+[Reference: Appendix L: Events to Monitor - Microsoft Docs](https://docs.microsoft.com/en-us/windows-server/identity/ad-ds/plan/appendix-l--events-to-monitor)
 
 ---
 
-## 6. Best Practices for Professionals
-1. **Know Your "Normal"**: You cannot spot anomalies (threats) if you don't know what normal traffic looks like.
-2. **Centralize Logs**: Forward logs (using "Forwarded Events" or a SIEM) to a central server rather than checking individual machines.
-3. **Correlate**: A single event is rarely a smoking gun. Combine data (e.g., *Failed Logon* + *Service Installed* + *Outbound Connection*).
-4. **Monitor "Silence"**: The absence of logs (e.g., gaps in uptime or stopped logging services) is often as important as the logs themselves.
-## 7. Useful References & Official Documentation
-* [Microsoft Security Auditing Overview](https://docs.microsoft.com/en-us/windows/security/threat-protection/auditing/security-auditing-overview)
-* [Event ID 4624 (Logon) Details](https://docs.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4624)
-* [Understanding SDDL Syntax](https://docs.microsoft.com/en-us/windows/win32/secauthz/security-descriptor-string-format)
-* [Appendix L: Events to Monitor](https://docs.microsoft.com/en-us/windows-server/identity/ad-ds/plan/appendix-l--events-to-monitor)
+## 6. Practice Decoding
+**Example 1: Restricted Folder**
+`D:(D;;FA;;;WD)(A;;GA;;;BA)`
+* **Translation**: Everyone (**WD**) is **Denied** (**D**) all access (**FA**), while Admins (**BA**) are **Allowed** (**A**) Full Control (**GA**).
+
+**Example 2: Audit Monitoring**
+`S:(AU;FA;GR;;;WD)`
+* **Translation**: Audit (**AU**) Everyone (**WD**) on **Failure** (**FA**) when they try to **Read** (**GR**) the object.
+
+---
+
+## 7. Best Practices for Professionals
+1. **Know Your "Normal"**: You cannot spot anomalies if you don't know what normal traffic looks like.
+2. **Centralize Logs**: Forward logs to a SIEM rather than checking individual machines.
+3. **Correlate**: A single event is rarely enough. Combine data (e.g., *Failed Logon* + *New Service*).
