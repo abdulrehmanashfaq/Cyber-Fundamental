@@ -1,99 +1,90 @@
-## ARP Scanning and Subnet-Wide Denial of Service
+## ARP Scans and Turning Them into a Subnet DoS
 
-### 1. Phase 1: The Digital Fingerprint (ARP Scanning)
-
-Before an attacker can launch an "Evil Twin" or "Man-in-the-Middle" attack, they must map the network. They use **ARP Scanning** to see who is "alive."
-
-#### 1.1 The Anatomy of a Scan
-
-In a standard network, ARP requests happen naturally as people connect. In a scan, the behavior changes:
-
-- **Sequential Requests**  
-  A single MAC address sends requests for `.1`, then `.2`, then `.3`, and so on, across the entire subnet.
-
-- **Non-Existent Hosts**  
-  The attacker asks for IPs that aren't assigned to anyone. On a normal network, you don't ask for someone who isn't there.
-
-- **Tool Signature**  
-  This is exactly what tools like **Nmap** or **Netdiscover** do.
+This note explains how attackers use ARP first to **map** a LAN and then to **knock it offline**, plus what to look for in captures.
 
 ---
 
-### 2. Phase 2: The Network Blackout (Subnet-Wide DoS)
+### 1. Phase One: “Who’s Alive?” – ARP Scanning
 
-Once the scanner identifies all live hosts, the attacker can move from "spying" on one person to crashing the entire office.
+Normal ARP chatter is fairly random: hosts ask for addresses as they need them.  
+During a scan, the pattern changes:
 
-#### 2.1 How the Attack Escalates
+- One MAC walks the entire subnet (`.1`, `.2`, `.3`, …).  
+- It asks for IPs that don’t correspond to any real host.  
+- The source MAC is constant and often belongs to a machine running tools like Nmap or Netdiscover.
 
-- **Targeting the Gateway**  
-  The attacker tells the router:  
-  "Every single IP on this network now belongs to my MAC address."  
-  This poisons the router's entire ARP table.
-
-- **Targeting the Clients**  
-  The attacker broadcasts to the entire subnet:  
-  "I am the Gateway (`192.168.10.1`)."
-
-- **The Result**  
-  All traffic from the clients goes to the attacker, and all traffic from the internet goes to the attacker.  
-  If the attacker doesn't forward it, the entire subnet goes offline.
+In other words, you see a **single MAC asking about everyone** in a very short time window.
 
 ---
 
-### 3. Investigation & Hunting Commands
+### 2. Phase Two: From Recon to Blackout
 
-#### 3.1 Detecting the Scan (Reconnaissance)
+Once the attacker knows which IPs are in use, they can poison the ARP tables of:
 
-Use this Wireshark filter to see if someone is "knocking on every door":
+- The **gateway** – convincing the router that every IP maps to the attacker’s MAC.  
+- The **clients** – convincing all workstations that the attacker is the default gateway.
+
+If the attacker stops forwarding traffic at that point:
+
+- Client → attacker (instead of gateway).  
+- Internet → attacker (instead of the real host).  
+- Result: the whole subnet appears “down” from the users’ perspective.
+
+---
+
+### 3. Hunting ARP Scans and DoS in PCAPs
+
+#### 3.1 Finding the Scanner
+
+Wireshark display filter:
 
 ```text
 arp.opcode == 1 && eth.src == [Source_MAC]
 ```
 
-Look for **10+ requests in a single second** to sequential IPs.
+Then:
 
-#### 3.2 Detecting the DoS (The Attack)
+- Sort by time and look for **bursts** of ARP Requests to sequential IPs.  
+- Ten or more requests in a single second to neighboring addresses is already suspicious.
 
-To see if the attacker is claiming every IP on the network:
+#### 3.2 Catching the Subnet‑Wide Poison
+
+To catch the “everything now lives at my MAC” move:
 
 ```text
 arp.duplicate-address-detected && arp.opcode == 2
 ```
 
-If you see this warning appearing for multiple different IP addresses but pointing to the **same MAC**, you are witnessing a subnet-wide poison attack.
+If many different IPs are suddenly “duplicate” but all point to the same MAC, you’re seeing a broad poison attempt.
 
-#### 3.3 CLI Investigation (TShark)
-
-To quickly identify the scanner's MAC from a capture file:
+#### 3.3 Quick CLI View with TShark
 
 ```bash
-# This extracts the target IPs being requested by a specific MAC
-tshark -r ARP_Scan.pcapng -Y "eth.src == 08:00:27:53:0c:ba" -T fields -e arp.dst.proto_ipv4
+# See which IPs a given MAC is scanning for
+tshark -r ARP_Scan.pcapng \
+  -Y "eth.src == 08:00:27:53:0c:ba" \
+  -T fields -e arp.dst.proto_ipv4
 ```
 
 ---
 
-### 4. Response & Remediation (Incident Response)
+### 4. Practical Response Steps
 
-When you detect these anomalies, your documentation should suggest these "real world" steps:
-
-- **Step 1: Physical Tracing**  
-  The attacker’s MAC address is tied to a physical device.  
-  Check your switch's MAC address table to find which physical port that device is plugged into.
+- **1) Trace the cable**  
+  Use your switch’s MAC table to figure out where the attacker’s MAC is plugged in:
 
   ```text
   show mac address-table address [Attacker_MAC]
   ```
 
-- **Step 2: Port Shutdown**  
-  Once identified, shut the port to isolate the attacker.
+- **2) Isolate the port**  
+  Shut down the offending interface so it can’t continue poisoning:
 
   ```text
   interface [Port_ID]
     shutdown
   ```
 
-- **Step 3: Containment**  
-  If the attack is coming over Wi‑Fi (like an Evil Twin), use a deauthentication tool against the attacker's radio to stop their broadcast.
-
+- **3) Contain wireless sources**  
+  If the hostile device is on Wi‑Fi (evil twin AP, rogue client), use deauth or your WLAN controller’s containment features to disconnect it.
 

@@ -1,96 +1,95 @@
-## ARP Spoofing (Poisoning) Detection and Response
+## ARP Spoofing: Spotting and Stopping Poisoned Caches
 
-### 1. Protocol Fundamentals: The "Vanilla" ARP
-
-To detect anomalies, you must understand the baseline. **ARP (Address Resolution Protocol)** maps Layer 3 (IP) addresses to Layer 2 (MAC) addresses.
-
-#### 1.1 The Standard Handshake
-
-- **Request (Opcode 1)**  
-  Host A broadcasts:  
-  `"Who has IP 192.168.10.4? Tell 192.168.10.5"`
-
-- **Reply (Opcode 2)**  
-  Host B unicasts:  
-  `"192.168.10.4 is at 50:eb:f6:ec:0e:7f"`
-
-- **Caching**  
-  Host A stores this mapping in its ARP cache to avoid constant broadcasting.
+This file focuses on the classic ARP spoofing technique used for man‑in‑the‑middle and DoS, plus how to catch it in captures and on a live host.
 
 ---
 
-### 2. The Mechanics of the Attack
+### 1. Quick Refresher: Normal ARP Behaviour
 
-ARP Poisoning exploits the **trusting** nature of the protocol. It does not require a request to send a reply (Gratuitous ARP).
+ARP glues IP addresses to MAC addresses on a LAN.
 
-- **The Goal**: Redirect traffic through the attacker's machine.
-- **The Method**: The attacker sends counterfeit ARP replies to both the victim and the gateway (router):
-  - To **Victim**: "I am the Gateway" (Attacker's MAC + Gateway's IP).
-  - To **Gateway**: "I am the Victim" (Attacker's MAC + Victim's IP).
+Normal flow:
 
-#### 2.1 Outcomes
+- **Request (opcode 1)** – A host broadcasts:  
+  “Who has `192.168.10.4`? Tell `192.168.10.5`.”
 
-- **DoS**: Attacker drops the traffic.
-- **MITM**: Attacker forwards the traffic (often leading to SSL stripping or DNS spoofing).
+- **Reply (opcode 2)** – The owner of `192.168.10.4` unicasts back:  
+  “`192.168.10.4` is at `50:eb:f6:ec:0e:7f`.”
+
+- **Caching** – The requester stores this mapping so it doesn’t have to ask again for every packet.
+
+The key weakness: ARP will happily accept updates without strong authentication.
 
 ---
 
-### 3. Hands-On Detection Workflow
+### 2. How Spoofing Breaks It
 
-#### 3.1 Traffic Capture
+Attackers abuse that trust by sending **forged ARP replies** (often without any prior request — “gratuitous ARP”).
 
-If you are on a Linux-based system, use `tcpdump` to capture raw traffic for analysis:
+Typical pattern:
+
+- To the victim: “Gateway IP is at **my** MAC.”  
+- To the gateway: “Victim IP is at **my** MAC.”
+
+Results:
+
+- If the attacker forwards traffic → full **MITM** (sniffing, tampering, SSL stripping, DNS spoofing, etc.).  
+- If they drop traffic → targeted **DoS** against one or more hosts.
+
+---
+
+### 3. Capturing and Inspecting ARP Traffic
+
+#### 3.1 Grab a Sample with tcpdump
 
 ```bash
-# Install tcpdump
+# Install tcpdump if needed
 sudo apt install tcpdump -y
 
-# Capture traffic on eth0 and write to a file
-sudo tcpdump -i eth0 -w ARP_Spoof.pcapng
+# Capture ARP traffic on eth0
+sudo tcpdump -i eth0 arp -w ARP_Spoof.pcapng
 ```
 
-#### 3.2 Wireshark Analysis (The Red Flags)
+#### 3.2 Red Flags in Wireshark
 
-When analyzing `ARP_Spoof.pcapng`, use these specific filters to find the attacker:
+Open `ARP_Spoof.pcapng` and use filters like:
 
-| **Analysis Goal**       | **Wireshark Filter**                              |
-|-------------------------|---------------------------------------------------|
-| Isolate ARP only        | `arp`                                             |
-| Find duplicate IPs      | `arp.duplicate-address-detected && arp.opcode == 2` |
-| Track specific MAC      | `eth.addr == 08:00:27:53:0c:ba`                   |
-| Find original IPs       | `(arp.opcode) && (eth.src == 08:00:27:53:0c:ba)`  |
+| Goal                  | Wireshark filter                                      |
+|-----------------------|-------------------------------------------------------|
+| Only ARP              | `arp`                                                 |
+| Duplicate IPs         | `arp.duplicate-address-detected && arp.opcode == 2`   |
+| Focus on one MAC      | `eth.addr == 08:00:27:53:0c:ba`                       |
+| See what one MAC says | `arp && eth.src == 08:00:27:53:0c:ba`                 |
 
-#### 3.3 Key Indicators of Compromise (IOCs)
+Indicators:
 
-- **Address duplication**: Wireshark flags an IP mapped to two different MAC addresses.
-- **High frequency**: A single host incessantly broadcasting ARP replies.
-- **IP transition**: A MAC address historically linked to one IP (e.g., `.5`) suddenly claiming to be another (e.g., `.4`).
+- One IP suddenly appears mapped to **two different MACs**.  
+- A single host sends lots of unsolicited ARP replies.  
+- A MAC that used to own `.5` now loudly claims to be `.4` as well.
 
 ---
 
-### 4. Verification via Command Line
+### 4. Verifying on an Endpoint
 
-If you suspect an attack is happening live on your Linux machine, check your local cache:
+On a Linux machine that might be under attack:
 
 ```bash
-# Look for the suspicious MAC address in your local table
+# Check the ARP cache for a suspicious MAC
 arp -a | grep 08:00:27:53:0c:ba
 ```
 
-If you see **two different IPs** associated with that same attacker MAC, you are currently being spoofed.
+If the same MAC shows up for multiple important IPs (like the gateway and another host), that’s a strong sign of spoofing in progress.
 
 ---
 
-### 5. Mitigation Strategies
+### 5. Hardening Options
 
-- **Static ARP Entries**  
-  Manually map critical IPs (like the gateway) to MACs.  
-  High maintenance, but un-spoofable.
+- **Static ARP for critical nodes**  
+  Pin the gateway’s IP → MAC mapping on key servers. This is extra admin work, but those entries cannot be spoofed.
 
-- **Port Security**  
-  Configure switches to allow only one MAC address per physical port.
+- **Port security on switches**  
+  Limit how many MAC addresses are allowed per switch port, and alert/block when a new one appears unexpectedly.
 
-- **DAI (Dynamic ARP Inspection)**  
-  A security feature in high-end switches that validates ARP packets against a trusted database.
-
+- **Dynamic ARP Inspection (DAI)**  
+  On capable switches, use DAI so ARP replies are checked against a trusted database (e.g., DHCP snooping bindings) before being accepted.
 

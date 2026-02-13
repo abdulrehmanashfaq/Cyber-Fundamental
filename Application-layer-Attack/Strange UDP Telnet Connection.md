@@ -1,57 +1,80 @@
-# Network Traffic Analysis: Telnet and UDP Anomalies
+## Telnet Over Odd Ports and Suspicious UDP Traffic
 
-This project focuses on the identification of suspicious communication patterns within Telnet and UDP protocols, highlighting how these often-overlooked channels are exploited for command-and-control (C2) and data exfiltration.
-
----
-
-## Telnet Protocol Analysis
-
-Telnet is a legacy protocol that provides bidirectional, interactive communication. Because it transmits data in plaintext, it is a significant security risk and a primary target for traffic inspection.
-
-### 1. Traditional Traffic Identification (Port 23)
-Standard Telnet traffic operates on Port 23. While many modern systems have migrated to SSH, legacy environments or specific terminal services may still utilize it.
-* **Security Note:** Since Telnet is unencrypted, payloads are easily inspectable. However, attackers may still encode (e.g., Base64) or obfuscate the text within the Telnet stream to hide their actions.
-
-### 2. Non-Standard Port Utilization (TCP Port Switching)
-Attackers often run Telnet services on non-standard ports (such as Port 9999) to bypass basic firewall filters that only look for Port 23.
-* **Detection:** Monitoring for high volumes of interactive TCP traffic on unrecognized ports.
-* **Analysis Technique:** Using "Follow TCP Stream" in analysis tools to reconstruct the session and identify malicious commands.
-
-
-
-### 3. Telnet via IPv6
-In networks where IPv6 is enabled but unmonitored, it can be used as a "shadow" communication channel. Identifying Telnet traffic between IPv6 link-local addresses is a key indicator of lateral movement or unauthorized access.
-* **Analysis Filter:** `((ipv6.src_host == [Target_Address]) or (ipv6.dst_host == [Target_Address])) and telnet`
+This note covers how Telnet and UDP can be abused as quiet channels for C2 and exfiltration, and what to look for in PCAPs.
 
 ---
 
-## UDP Communication Monitoring
+## 1. Telnet: Old Protocol, New Problems
 
-UDP (User Datagram Protocol) is often preferred by attackers for exfiltration because it is connectionless, allowing for faster transmission with less protocol overhead than TCP.
+Telnet is a clear‑text, interactive protocol. Anything typed goes over the wire readable by anyone on the path.
 
-### Detecting UDP Anomalies
-Unlike TCP, UDP does not require a three-way handshake (SYN, SYN/ACK, ACK). Communication begins immediately.
-* **Key Indicator:** Immediate data transmission to an external or unknown IP address without a prior connection setup.
-* **Analysis Technique:** Following the UDP stream to inspect the raw data field for encoded payloads or file fragments.
+### 1.1 Classic Telnet on Port 23
 
+Where it still exists, you’ll usually see:
 
+- TCP port 23 as the destination.  
+- Clear‑text usernames, passwords, and shell commands when you follow the stream.
 
-### Comparison of Legitimate UDP Use Cases
+Even though the content is visible, attackers may still:
 
-| Protocol/Application | Description | Potential Security Risk |
-| :--- | :--- | :--- |
-| **Real-time Apps** | Media streaming, VoIP, and gaming. | Masking exfiltration as legitimate steady-state streams. |
-| **DHCP** | Assigning dynamic IP addresses. | Rogue DHCP servers used for traffic redirection. |
-| **SNMP** | Network management and monitoring. | Enumerating network topology and device details. |
-| **TFTP** | Simplified file transfer protocol. | Moving malicious payloads onto legacy hardware or IoT devices. |
+- Encode payloads (e.g., Base64 blobs) to hide intent from quick visual inspection.  
+- Use Telnet as a simple remote shell in legacy networks.
+
+### 1.2 Telnet on Non‑Standard Ports
+
+To dodge simple port‑based filters, attackers can run Telnet daemons on ports like 9999 instead of 23.
+
+Detection ideas:
+
+- Look for **interactive‑looking TCP flows** (lots of small packets back and forth) on unexpected ports.  
+- Use “Follow TCP Stream” in Wireshark to reconstruct the conversation and see whether it looks like a shell.
+
+### 1.3 Telnet over IPv6
+
+In environments where IPv6 is enabled but not monitored, it becomes a side channel.
+
+Useful filter example:
+
+```text
+((ipv6.src == [Target_Address]) or (ipv6.dst == [Target_Address])) and telnet
+```
+
+This helps surface sessions that never show up in IPv4‑only dashboards.
 
 ---
 
-## Investigation Workflow
+## 2. UDP as a Lightweight Exfil Channel
 
-To effectively analyze these "strange" connections, follow these steps:
+UDP doesn’t have a handshake; senders can start pushing data immediately.
 
-1. **Verify the Port:** Determine if the protocol is running on its assigned port or a suspicious alternative.
-2. **Examine the Handshake:** For TCP-based Telnet, look for anomalies in the connection phase; for UDP, look for sudden spikes in data volume.
-3. **Follow the Stream:** Reconstruct the communication to determine if the payload contains human-readable commands, script execution, or encoded data.
-4. **Check Address Families:** Ensure both IPv4 and IPv6 traffic are being monitored for hidden tunnels.
+### 2.1 What to Watch For
+
+- Traffic that **immediately carries payloads** to an external IP with no preceding connection setup.  
+- Steady, periodic UDP packets that all have similar sizes, especially to rare or unknown destinations.
+
+In Wireshark, “Follow UDP Stream” can show whether the payloads look like:
+
+- Encoded text.  
+- File fragments.  
+- Simple command/response patterns.
+
+### 2.2 Legitimate vs. Suspicious Uses
+
+| Use case          | Normal behaviour                          | Possible abuse                                    |
+|-------------------|--------------------------------------------|--------------------------------------------------|
+| Streaming/VoIP    | Continuous, predictable flows             | Hiding exfil in background media flows           |
+| DHCP              | Bursts on local segments                  | Rogue DHCP servers steering traffic elsewhere    |
+| SNMP              | Sporadic management polling               | Mapping network topology for later attacks       |
+| TFTP              | Simple file transfers                     | Dropping payloads onto legacy/IoT devices        |
+
+---
+
+## 3. Basic Investigation Flow
+
+When you see “weird” Telnet/UDP traffic:
+
+1. **Check ports** – Is it using the expected port or something unusual?  
+2. **Review the handshake pattern** – For TCP, confirm SYN/SYN‑ACK/ACK looks normal; for UDP, note immediate data.  
+3. **Follow the stream** – Rebuild the Telnet or UDP conversation and actually read the payload.  
+4. **Compare IPv4 vs. IPv6** – Make sure you don’t miss tunnels that only exist on one address family.
+

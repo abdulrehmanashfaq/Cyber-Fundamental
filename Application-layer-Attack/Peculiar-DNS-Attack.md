@@ -1,93 +1,90 @@
-#  Peculiar DNS Traffic Analysis
+## Analysing Odd DNS Traffic: Enumeration and Tunnels
 
-This project documents the analysis of malicious DNS traffic patterns, focusing on identifying enumeration attempts and data exfiltration through tunneling.
-
----
-
-##  How DNS Works: The Resolution Process
-
-DNS acts as the **"Phonebook of the Internet."** It translates human-readable domain names into machine-readable IP addresses through a hierarchical process.
-
-
-
-### The 8-Step Resolution Cycle:
-1. **Query Initiation:** User requests a domain (e.g., `firstpage.example.com`).
-2. **Local Cache Check:** The client checks its own OS cache.
-3. **Recursive Query:** If not found, the request goes to the Recursive Resolver.
-4. **Root Servers:** The resolver asks a Root Server (one of 13 worldwide) where to find the TLD.
-5. **TLD Servers:** The Root directs the resolver to the `.com` or `.org` nameservers.
-6. **Authoritative Servers:** The TLD server points to the specific nameservers for `example.com`.
-7. **Final Resolution:** The resolver queries the domain's authoritative server for the `A` record.
-8. **Response:** The resolver returns the IP to the client and caches it.
+This note is about spotting when DNS is being abused—either for heavy recon or as a covert data channel.
 
 ---
 
-##  Types of DNS Queries
+## 1. Quick DNS Refresher
 
-| Query Type | Description |
-| :--- | :--- |
-| **Recursive** | The client demands the final answer; the server does all the "legwork." |
-| **Iterative** | The server provides its best answer or a referral to another server. |
-| **Reverse (PTR)** | Maps an IP back to a hostname (e.g., `6.10.168.192.in-addr.arpa`). |
+DNS is the Internet’s addressing service: it turns names into IPs.
 
+Typical resolution path:
 
+1. Client asks for `firstpage.example.com`.  
+2. OS cache is checked; if no hit, the query goes to a **recursive resolver**.  
+3. The resolver queries **root servers** to find which TLD server (`.com`, `.org`, etc.) is responsible.  
+4. The TLD server points it to the **authoritative nameserver** for `example.com`.  
+5. The authoritative server returns an `A`/`AAAA` record.  
+6. The resolver caches the result and returns it to the client.
 
----
+### 1.1 Common Query Styles
 
-##  1. DNS Enumeration Detection
-DNS enumeration is the reconnaissance phase where an attacker maps the network's infrastructure.
-
-### Indicators found in `dns_enum_detection.pcapng`:
-* **ANY Queries:** DNS type `ANY` (255) used to pull all available records.
-* **Subdomain Bruteforcing:** Massive spikes in `NXDOMAIN` (Name Error) responses.
-* **AXFR (Zone Transfer):** Attempts to download the entire DNS database via TCP Port 53.
-
----
-
-##  2. DNS Tunneling and Exfiltration
-Tunneling exploits DNS to move data across network boundaries, often bypassing firewalls.
-
-### Indicators found in `dns_tunneling.pcapng`:
-* **TXT Record Abuse:** Large strings of arbitrary data stored in the Text field.
-* **Encoded Subdomains:** Data is "chunked" and encoded in the subdomain prefix.
-* **Multi-Layer Encoding:** Attackers frequently double or triple encode data in Base64.
-
-### Decoding Exfiltrated Data
-To retrieve the true value from a triple-encoded string, use the following command in Linux:
+| Query type      | What it does                                                  |
+|-----------------|---------------------------------------------------------------|
+| Recursive       | Resolver must return the final answer or an error.           |
+| Iterative       | Resolver can respond with “go ask this other server.”        |
+| Reverse (PTR)   | Asks “who owns this IP?” via `in-addr.arpa` / `ip6.arpa`.    |
 
 ---
 
-##  Summary of DNS Record Types
+## 2. DNS Enumeration in Captures
 
-| Record Type | Official Purpose | Malicious Use Case |
-| :--- | :--- | :--- |
-| **A / AAAA** | Maps a domain name to an IPv4/IPv6 address. | Identifying the IP addresses of live targets. |
-| **PTR** | Maps an IP address back to a hostname (Reverse DNS). | **Reverse Network Sweeping** to discover hidden hosts. |
-| **TXT** | Stores arbitrary text information. | **Data Exfiltration** and Command & Control (C2). |
-| **MX** | Identifies the mail servers for a domain. | Targeting an organization's email infrastructure. |
-| **CNAME** | Creates an alias for a domain name. | Hiding C2 traffic behind legitimate-looking aliases. |
-| **SOA** | Administrative info about the DNS zone. | Gathering admin emails and zone details. |
+Enumeration is just DNS being used as a recon tool to map infrastructure.
 
----
+In something like `dns_enum_detection.pcapng`, look for:
 
-##  The Interplanetary File System (IPFS)
-Recent observations show actors using IPFS to host malicious payloads. Always monitor traffic to known gateways:
-* `https://cloudflare-ipfs.com/ipfs/[HASH]`
----
+- **ANY queries** – Type `ANY` (255) asking for all available data about a name.  
+- **Spikes in NXDOMAIN** – Brute‑force subdomain lists cause lots of “name does not exist” replies.  
+- **AXFR attempts** – Zone transfer requests over TCP/53 trying to pull the full zone.
 
-##  Summary of DNS Record Types
-
-| Record Type | Official Purpose | Malicious Use Case |
-| :--- | :--- | :--- |
-| **A / AAAA** | Maps a domain name to an IPv4/IPv6 address. | Identifying the IP addresses of live targets. |
-| **PTR** | Maps an IP address back to a hostname (Reverse DNS). | **Reverse Network Sweeping** to discover hidden hosts. |
-| **TXT** | Stores arbitrary text information. | **Data Exfiltration** and Command & Control (C2). |
-| **MX** | Identifies the mail servers for a domain. | Targeting an organization's email infrastructure. |
-| **CNAME** | Creates an alias for a domain name. | Hiding C2 traffic behind legitimate-looking aliases. |
-| **SOA** | Administrative info about the DNS zone. | Gathering admin emails and zone details. |
+All of these are much rarer in normal user traffic, but very common in tools.
 
 ---
 
-##  The Interplanetary File System (IPFS)
-Recent observations show actors using IPFS to host malicious payloads. Always monitor traffic to known gateways:
-* `https://cloudflare-ipfs.com/ipfs/[HASH]`
+## 3. DNS as a Tunneling Channel
+
+### 3.1 How Tunnels Use DNS
+
+Attackers can tunnel data inside DNS by:
+
+- Splitting data into small chunks.  
+- Encoding chunks (often Base64).  
+- Embedding them in either:
+  - **TXT records**, or  
+  - Long, weird‑looking subdomains (e.g., `<encoded_blob>.exfil.attacker.com`).
+
+The recursive resolver and intermediate firewalls usually just see this as “someone making lots of DNS queries.”
+
+### 3.2 Indicators in `dns_tunneling.pcapng`
+
+- TXT answers with long, non‑human text.  
+- Sequences of subdomains that look random but share a common base domain.  
+- Multiple layers of encoding (data that still looks like Base64 after one decode).
+
+On the analysis side, you’d export those strings and try decoding step by step to reconstruct the original payload.
+
+---
+
+## 4. Handy Record-Type Cheat Sheet
+
+| Record | Normal use                                  | Abuse pattern                                     |
+|--------|---------------------------------------------|---------------------------------------------------|
+| A/AAAA | Name → IP                                   | Target discovery, host fingerprinting             |
+| PTR    | IP → name (reverse lookup)                 | Reverse sweeps to find hidden assets              |
+| TXT    | Arbitrary text                             | Exfil and C2 payloads                             |
+| MX     | Mail routing                               | Targeting mail infra and phishing infrastructure  |
+| CNAME  | Aliases                                     | Hiding C2 domains behind “legit” names            |
+| SOA    | Zone metadata                              | Gathering admin info and timing details           |
+
+---
+
+## 5. IPFS Side Note
+
+Attackers increasingly host payloads on content‑addressed systems like IPFS.  
+From a network perspective, you might see:
+
+- Requests to public gateways such as:  
+  `https://cloudflare-ipfs.com/ipfs/<HASH>`
+
+It’s worth adding those gateways to your monitoring lists, as a surprising number of malware campaigns lean on them to store second‑stage code.
+

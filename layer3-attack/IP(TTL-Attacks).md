@@ -1,59 +1,58 @@
-## IP Time-to-Live (TTL) Attacks
+## Playing with Time-To-Live: TTL as an Evasion Tool
 
-TTL manipulation is a sophisticated evasion technique used to bypass security boundaries like firewalls, IDS, and IPS systems.
-
----
-
-### 1. The Evasion Mechanism
-
-- **Packet crafting**  
-  The attacker intentionally sets an unnaturally low TTL value (e.g., 1, 2, or 3) in the IP header.
-
-- **Intentional expiration**  
-  The goal is for the packet to "die" (TTL reaches zero) after passing through specific network hops but **before** it reaches a security monitoring point or the final destination.
-
-- **The "death message"**  
-  When the packet expires, the router at that specific hop discards it and generates an **ICMP Time Exceeded (Type 11)** message.
-
-- **Reconnaissance**  
-  This "Time Exceeded" message is sent back to the source IP provided in the original packet.  
-  If an attacker spoofs an internal IP, they can force internal devices to receive these "death messages," mapping out the path without the IDS ever seeing the "malicious" part of the data.
+Time-To-Live (TTL) is supposed to be a simple safety feature in IP: a counter that prevents packets from looping forever. Attackers can twist this field to sneak around monitoring points or learn about your internal path layout.
 
 ---
 
-### 2. Detection and Analysis in Wireshark
+### 1. How TTL-Based Evasion Works
 
-Detection is often difficult in small quantities but becomes obvious during high-volume port scanning.
+Think of each router hop as subtracting 1 from the TTL.
 
-- **Low TTL values**  
-  Open the IPv4 header in Wireshark; packets arriving from external sources with a TTL of **1–5** are almost certainly crafted.
+- **Crafting low-TTL probes**  
+  An attacker deliberately sets very small TTL values (1, 2, 3…) so the packet expires at a specific hop instead of reaching the real destination.
 
-- **Path mapping indicators**  
-  A high volume of ICMP Type 11 messages originating from your own gateway or routers.
+- **Triggering ICMP "time exceeded" replies**  
+  When a router drops a packet whose TTL hit zero, it sends back an ICMP Time Exceeded (Type 11) message to the source.
 
-- **Successful evasion**  
-  If you see a SYN/ACK returned from a legitimate service port despite the original probe having a suspicious TTL, the attacker has successfully bypassed a control.
+- **Abusing the source IP**  
+  If the attacker spoofs an internal source address, those ICMP Time Exceeded messages get delivered **inside** your network. The attacker learns about internal devices and paths while your IDS/IPS may never see the original low‑TTL probe.
 
----
-
-### 3. Recommended Controls
-
-- **Minimum TTL filtering**  
-  Implement a security control to discard or filter packets that arrive with a TTL below a specific threshold (e.g., anything less than 5–10 from an external source).
-
-- **Path-based analysis**  
-  Watch for mismatches between the expected hop count of a source and the actual TTL received.
+Used this way, TTL becomes part network‑mapping trick, part sensor‑evasion technique.
 
 ---
 
-### 4. Wireshark Filter Cheat Sheet
+### 2. Spotting TTL Games in Wireshark
 
-Include these filters to help analyze the `ip_ttl.pcapng` file:
+These tricks are subtle at low volume, but stand out when used during broad scanning.
 
-| **Goal**               | **Filter**                          |
-|------------------------|-------------------------------------|
-| Find low TTL packets   | `ip.ttl < 10`                      |
-| Find "death messages"  | `icmp.type == 11`                  |
-| Spot evasion success   | `tcp.flags.syn == 1 && tcp.flags.ack == 1 && ip.ttl < 64` |
+- **Suspicious TTL values from the internet**  
+  Open the IPv4 header and look at `ip.ttl`. External traffic arriving with values like 1–5 is rarely normal and often crafted.
 
+- **Bursts of ICMP Type 11**  
+  Lots of `icmp.type == 11` messages originating from your own routers/gateways suggest someone is deliberately burning TTLs along the path.
+
+- **Evasion with successful connections**  
+  If you see successful `SYN/ACK` responses from internal services around the same time as odd low‑TTL traffic, it can indicate the attacker is probing paths while still managing to talk to the service via other routes.
+
+---
+
+### 3. Hardening Ideas
+
+- **Drop packets with "too small" TTLs**  
+  At the edge, discard inbound packets whose TTL is below a policy threshold (for example, anything < 5–10). Legitimate clients almost never send traffic that low.
+
+- **Compare expected vs. observed TTL**  
+  For known partners or segments, you can estimate the normal hop count. A TTL that doesn’t fit that pattern is a signal for deeper inspection.
+
+---
+
+### 4. Handy Filters for TTL Investigations
+
+If you’re reviewing something like `ip_ttl.pcapng`, these display filters help:
+
+| Goal                  | Filter                                                             |
+|-----------------------|--------------------------------------------------------------------|
+| Find low TTL packets  | `ip.ttl < 10`                                                     |
+| Find time‑exceeded    | `icmp.type == 11`                                                 |
+| Confirm odd success   | `tcp.flags.syn == 1 && tcp.flags.ack == 1 && ip.ttl < 64`         |
 

@@ -1,87 +1,87 @@
-## Forensic Analysis: TCP RST Injection and Hijacking Anomalies
+## TCP Connection Resets and Session Hijacking Clues
 
-### 1. Concept: The TCP Reset (RST) Attack
-
-A TCP Reset attack is a method used to abruptly terminate a connection between two parties (e.g., a client and a server).  
-By injecting a packet with the `RST` flag set, the attacker tricks the targets into thinking the other side has crashed or closed the session.
-
-#### 1.1 Technical Requirements for the Attacker
-
-1. **Spoofed IP**: The packet must appear to come from the trusted partner.  
-2. **Matching ports**: The attacker must know the source and destination ports.  
-3. **In‑window sequence numbers ($SEQ$)**: The receiver will ignore the reset if the sequence number is not what it expects next.
+This section is about recognizing when someone is force‑closing or hijacking TCP sessions by forging packets rather than by using the application normally.
 
 ---
 
-### 2. Detection via Layer 2 (MAC Address Verification)
+### 1. What a Forged RST Looks Like
 
-In a local network, the IP address is easily faked, but the **MAC Address** (hardware address) is harder to hide because it is required for the packet to move through physical switches.
+A normal TCP Reset (RST) is how a host says “I’m done with this connection right now.” Attackers can **inject their own RST** into an existing flow to tear it down unexpectedly.
 
-#### 2.1 The "Mismatched MAC" Indicator
+To succeed, they generally need:
 
-If your network logs show that `192.168.10.4` is assigned to an Apple laptop (`aa:aa:aa:aa:aa:aa`), but a reset packet arrives:
+1. **The right IPs** – The forged packet has to pretend to be one of the endpoints.  
+2. **Correct ports** – Source and destination ports must match the real connection.  
+3. **A believable sequence number** – If the sequence number is outside the receiver’s current window, the RST is ignored.
 
-- Claiming to be from that IP, **and**
-- Carrying a Dell MAC address (`bb:bb:bb:bb:bb:bb`)
-
-…you have confirmed an injection.
-
----
-
-### 3. The "Unseen Segment" Mystery in Wireshark
-
-When analyzing a capture, you may see the expert info: **`[TCP ACKed unseen segment]`**.  
-This is often the "smoking gun" of a sophisticated hijacking attempt.
-
-#### 3.1 How It Happens (The Race Scenario)
-
-1. **Interception**: An attacker (acting as a Man‑in‑the‑Middle) sees a client send a request. They hold or delay that packet.  
-2. **Injection**: The attacker quickly sends their own "ghost" packet to the server using the client's identity.  
-3. **The server responds**: The server receives the attacker's packet and sends an ACK back.  
-4. **The capture conflict**: Wireshark sees the server's ACK, but because the attacker delayed the original client packet, Wireshark hasn't recorded any data that justifies that ACK.  
-5. **Result**: Wireshark flags the ACK as being for an **unseen** segment.
+When all three line up, the victim believes the peer sent a legitimate reset.
 
 ---
 
-### 4. Practical Scenario: "Session Kill" / BGP Hijack Style
+### 2. Using Layer 2 to Prove It’s Fake
 
-**Setup**: A workstation (client) is downloading a sensitive file from a server. An attacker is on the same local subnet.
+At Layer 3, IP addressing is easy to spoof. At Layer 2, MAC addresses tie packets to specific interfaces.
 
-**Action**:
+A classic giveaway:
 
-- The attacker wants to kill the download. They use a tool to sniff the current $SEQ$ numbers.  
-- The attacker sends: `Src: Server_IP, Dst: Client_IP, Flag: RST`.  
-- **Twist**: To ensure the client doesn't try to recover, the attacker also sends a spoofed ACK to the server for data the client hasn't even finished sending yet.
+- Your CMDB or ARP table says `192.168.10.4` belongs to one NIC (e.g., an Apple laptop MAC).  
+- You suddenly see RSTs claiming to be from `192.168.10.4` but with a **completely different vendor MAC**.
 
-**Forensic evidence**:
-
-- **In Wireshark**:  
-  You see the server send an ACK for $SEQ$ 5000. However, looking back in your logs, the last data the client sent was only at $SEQ$ 4000.  
-  Wireshark marks the server's packet as **`[TCP ACKed unseen segment]`**.
-
-- **In switch logs**:  
-  You see **MAC flapping** alerts. The server's MAC address is jumping between the actual uplink port and the attacker's port.
-
-- **Conclusion**:  
-  This wasn't a network glitch. The unseen segment proves a third party moved the sequence numbers forward before the legitimate client could.
+That mismatch is strong evidence the packet was injected by another host on the LAN.
 
 ---
 
-### 5. Summary Table for Investigators
+### 3. "ACKed Unseen Segment" in Wireshark
 
-| Observation                | Meaning                                                                                     |
-|---------------------------|---------------------------------------------------------------------------------------------|
-| **Unexpected RST packet** | A connection was forcibly closed.                                                          |
-| **MAC address mismatch**  | The packet was sent by a different device than the IP owner.                               |
-| **ACKed unseen segment**  | The server is responding to data the attacker sent (or the attacker delayed the real data).|
-| **MAC flapping**          | The attacker is actively trying to impersonate another device on the switch.               |
+Wireshark’s expert info sometimes shows **`[TCP ACKed unseen segment]`**. This is often the forensic hint that sequence numbers moved in a way your capture didn’t fully see.
+
+One way this can happen:
+
+1. An attacker sits in the path and temporarily holds back a client packet.  
+2. They send their own crafted data or control packet to the server using the client’s identity.  
+3. The server sends back an ACK that advances the sequence beyond what your capture has seen from the real client.  
+4. Wireshark observes the ACK but has no corresponding data segment in its history.
+
+The result: an ACK referencing bytes that, from the sniffer’s point of view, never existed.
 
 ---
 
-### 6. Recommended Defenses
+### 4. Example: Killing a Download
 
-- **Dynamic ARP Inspection (DAI)**: Hardens the network so only the "real" MAC can send traffic for an IP.  
-- **Port security**: Limits a switch port to a single, authorized MAC address.  
-- **Encryption (TLS)**: Makes it nearly impossible for an attacker to see the $SEQ$ numbers needed to craft the reset.  
+Imagine a user downloading a sensitive file:
 
+- The attacker watches the flow to learn the current sequence numbers.  
+- They inject a forged RST from the “server” to the client.  
+- To keep the server happy (and out of sync with reality), they may also send spoofed ACKs pretending the client sent or received data that it never did.
+
+In the traces you might see:
+
+- An ACK from the server acknowledging sequence 5000, even though the last client data you captured only reached 4000.  
+- Switch logs showing **MAC flapping**, as the attacker occasionally impersonates the server’s MAC on a different port.
+
+Together, this points to active interference rather than a flaky network.
+
+---
+
+### 5. Investigator’s Cheat Sheet
+
+| Symptom                   | Interpretation                                                                              |
+|---------------------------|--------------------------------------------------------------------------------------------|
+| Unexpected RST            | Someone forced a connection closed outside normal app behavior.                           |
+| IP ↔ MAC mismatch         | The packet didn’t come from the real owner of that IP on the local network.              |
+| ACKed unseen segment      | The sequence space advanced due to traffic your sniffer never saw (likely injected).     |
+| MAC flapping on a port    | A device is trying to impersonate another host at Layer 2.                                |
+
+---
+
+### 6. Hardening Against RST / Hijack Tricks
+
+- **Dynamic ARP Inspection & Port Security**  
+  Make it harder for attackers to spoof MACs or move an IP identity between ports without alarms.
+
+- **Prefer encrypted protocols (TLS)**  
+  When headers and payloads are encrypted, guessing or tracking valid sequence numbers becomes much more difficult.
+
+- **Monitor control flags at scale**  
+  Sudden spikes in RST traffic to critical services can point to active disruption or scanning side‑effects.
 

@@ -1,92 +1,113 @@
-## TCP Traffic Analysis: Protocol Abuse and Reconnaissance
+## Understanding the TCP Handshake and Scan Techniques
 
-This guide explains how attackers manipulate the fundamental rules of the TCP protocol to map networks and identify vulnerable services.
-
----
-
-### 1. The Foundation: The Standard 3‑Way Handshake
-
-A legitimate TCP connection follows a strict, predictable sequence to ensure both hosts are ready for data transfer:
-
-1. **SYN (Synchronize)** – The client requests a connection.  
-2. **SYN/ACK (Synchronize/Acknowledge)** – The server acknowledges the request and sends its own synchronize signal.  
-3. **ACK (Acknowledge)** – The client confirms receipt, and the virtual circuit is established.
+This note starts with the normal three‑way handshake, then looks at how attackers bend those rules for reconnaissance.
 
 ---
 
-### 2. Deep Dive: Scanning Mechanics and Behavioral Logic
+### 1. Normal Behavior: The 3‑Way Handshake
 
-#### 2.1 SYN Scanning (The Half‑Open Probe)
+A clean TCP connection setup looks like this:
 
-This is the most common scanning method because it is fast and "stealthy" at the application layer.
+1. **SYN** – Client asks to start a conversation.  
+2. **SYN/ACK** – Server agrees and acknowledges.  
+3. **ACK** – Client confirms, and both sides can now exchange data.
 
-- **Logic**: Instead of completing the handshake, the attacker sends a **RST (Reset)** immediately after receiving the **SYN/ACK**.  
-- **Why it works**: By sending the RST, the connection is never fully established. Most application-layer logs (like web servers) only record a connection *after* the final ACK is received.  
-- **Detection pattern**: Look for a single host sending a high volume of SYN packets followed immediately by RST packets to the same ports.
-
----
-
-#### 2.2 "Inverse Mapping" Scans (NULL, FIN, and Xmas)
-
-These scans rely on **RFC 793 behavior**, which dictates how a TCP stack must handle packets that do not belong to an active connection.
-
-- **NULL scan**: Sends a packet with **zero flags** set.  
-- **FIN scan**: Sends a packet with only the **FIN** flag, as if ending a connection that never started.  
-- **Xmas scan**: Sets the **FIN, PSH, and URG** flags simultaneously.
-
-**Diagnostic logic**:
-
-- **If the port is closed**: The target OS is required by protocol rules to send an **RST**.  
-- **If the port is open**: The target OS typically ignores the "illegal" packet and sends **no response**.  
-- **Stealth benefit**: These scans often bypass older, non-stateful firewalls that are only configured to look for "new connection" SYN packets.
+Everything in this document is about spotting traffic that abuses or skips parts of that pattern.
 
 ---
 
-#### 2.3 ACK Scanning (Firewall Probing)
+### 2. Common Scan Types and What They Do
 
-Unlike other scans, the ACK scan is not used to find open ports. It is used to map **firewall access control lists (ACLs)**.
+#### 2.1 SYN Scan (Half‑Open)
 
-- **Strategy**: The attacker sends an **ACK** packet (which normally only follows a SYN/ACK).  
-- **Filtered response**: If the attacker receives **no response**, the port is likely protected by a stateful firewall that dropped the "out‑of‑state" packet.  
-- **Unfiltered response**: If the target sends an **RST**, the port is "unfiltered," meaning the firewall allowed the packet through, even if the service port itself is closed.
+- The scanner sends a SYN to a port.  
+- If it gets **SYN/ACK** back, it knows the port is listening, and it immediately replies with **RST** instead of completing the handshake.
 
----
+Why this matters:
 
-### 3. Analyzing Flags for Threat Hunting
+- Many application logs only record a connection after the final ACK.  
+- From the app’s point of view, nothing ever “really” connected, but the attacker still learned which ports are open.
 
-When reviewing traffic, look for these red flags that indicate malicious intent:
+Network clue:
 
-- **Flag overload**  
-  "Spaghetti" traffic, such as the Xmas scan, where flags like PSH and URG are used in ways that serve no functional purpose for the service being hit.
-
-- **Unidirectional RSTs**  
-  Seeing thousands of RST packets leaving your server without any successful data transfers preceding them is a sign your server is responding to a massive scan.
-
-- **The one‑to‑many pattern**  
-  A single source IP hitting multiple ports on one host (vertical scan) or one port across many hosts (horizontal scan).
+- A host that sends lots of SYNs and then quickly follows each SYN/ACK with a RST.
 
 ---
 
-### 4. Summary Matrix for Security Analysts
+#### 2.2 NULL, FIN, and Xmas Scans
 
-| Attack Type   | Flags Used        | Open Port Behavior          | Closed Port Behavior | Primary Goal         |
-|--------------|-------------------|-----------------------------|----------------------|----------------------|
-| **SYN scan** | SYN               | SYN/ACK (then RST)          | RST                  | Quick recon          |
-| **NULL scan**| None              | No response                 | RST                  | OS fingerprinting    |
-| **Xmas scan**| FIN, PSH, URG     | No response                 | RST                  | Firewall evasion     |
-| **ACK scan** | ACK               | RST                         | RST                  | Map filtered ports   |
+These rely on how TCP is defined to behave when a packet does **not** belong to an existing connection.
+
+- **NULL scan** – No flags set at all.  
+- **FIN scan** – Only FIN is set, as if we’re closing a connection that was never opened.  
+- **Xmas scan** – Multiple flags such as FIN, PSH, and URG are all turned on.
+
+The logic:
+
+- **Closed port** → RFC behavior says the OS should send back an RST.  
+- **Open port** → Many stacks simply drop these strange packets and send nothing.
+
+So the attacker can infer:
+
+- “RST = closed”  
+- “Silence = probably open”
+
+And because no SYN is used, simple firewalls that only watch for new SYNs may miss this activity.
 
 ---
 
-### 5. Defensive Strategies
+#### 2.3 ACK Scan (Firewall Mapping)
 
-1. **Stateful inspection**  
-   Use firewalls that track the state of a connection. A stateful firewall will block an ACK or FIN packet if it didn't see the initial SYN.
+The ACK scan is less about open ports and more about **understanding firewall rules**.
 
-2. **Ingress filtering**  
-   Block all "impossible" packets, such as those with no flags (NULL) or illegal combinations (Xmas) at the network edge.
+- The scanner sends raw ACKs to various ports.  
+- A **stateful firewall** that didn’t see a prior SYN often drops these as “out of state,” leading to no reply.  
+- If an RST comes back, the packet made it through the filter, even if the service itself is closed.
 
-3. **Rate limiting**  
-   Monitor for a high frequency of RST packets leaving your network, as this is a byproduct of being scanned.
+Interpretation:
 
+- **No response** → The path is likely filtered/stateful for that port.  
+- **RST returned** → The firewall is permissive for that traffic (unfiltered), even if nothing is listening.
+
+---
+
+### 3. Flag Patterns to Watch For
+
+When hunting in PCAPs:
+
+- **Odd flag combinations**  
+  Traffic with strange mixes like FIN+PSH+URG that don’t make sense for the application often indicates scanning.
+
+- **RST floods from servers**  
+  Large waves of RSTs leaving a server with very little real data exchanged usually means the server is answering many probes.
+
+- **Vertical vs. horizontal probing**  
+  - One source to many ports on one host → vertical scan.  
+  - One source to the same port across many hosts → horizontal scan.
+
+Both tell you the attacker is mapping your environment rather than using a service for its intended purpose.
+
+---
+
+### 4. Quick Summary Table
+
+| Scan Type   | Flags sent        | Open port behavior          | Closed port behavior | Main purpose        |
+|------------|-------------------|-----------------------------|----------------------|---------------------|
+| SYN        | SYN               | SYN/ACK, then scanner RST   | RST                  | Fast port discovery |
+| NULL       | (no flags)        | Usually no response         | RST                  | Fingerprint / evade |
+| Xmas       | FIN, PSH, URG     | Usually no response         | RST                  | Firewall evasion    |
+| ACK        | ACK               | RST (if path unfiltered)    | RST                  | Find filtered paths |
+
+---
+
+### 5. Defensive Thoughts
+
+1. **Use real stateful firewalls**  
+   Devices should track connection state and drop ACK/FIN packets that don’t belong to any known flow.
+
+2. **Block impossible packets at the edge**  
+   Filter traffic with illegal or nonsensical flag combinations, which are rarely needed in legitimate use.
+
+3. **Alert on RST storms and scan patterns**  
+   Sudden increases in RST volume or clear vertical/horizontal scan patterns are strong early‑warning signs of reconnaissance.
 

