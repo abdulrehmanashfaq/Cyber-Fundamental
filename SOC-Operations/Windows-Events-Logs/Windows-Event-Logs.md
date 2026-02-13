@@ -1,5 +1,7 @@
 # Windows Event Logging & Security Auditing Notes
 
+> Note: This walkthrough of Windows logging and key event IDs summarizes my own understanding, informed by Microsoft documentation and security labs/training (including Hack The Box), but phrased and structured in my own words.
+
 ## 1. Introduction to Windows Event Logs
 Windows Event Logs are the central nervous system of Windows monitoring, acting as a comprehensive repository for recording system, security, and application activities.
 

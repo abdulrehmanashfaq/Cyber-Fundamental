@@ -1,5 +1,7 @@
 # Deep Dive: Elastic Stack (ELKB) Architecture
 
+> Note: These notes reflect my own summary and understanding of Elastic Stack concepts, informed by official Elastic documentation and training platforms such as Hack The Box, but rewritten and structured in my own words.
+
 ## 1. Introduction
 The Elastic Stack (formerly ELK Stack) is a collection of open-source software tools—**Elasticsearch**, **Logstash**, **Kibana**, and **Beats**—that provide a complete pipeline for searching, analyzing, and visualizing data in real-time. In the context of Cybersecurity, this stack serves as the foundation for a **SIEM (Security Information and Event Management)** solution.
 

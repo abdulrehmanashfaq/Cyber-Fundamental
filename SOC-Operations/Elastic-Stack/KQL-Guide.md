@@ -1,5 +1,7 @@
 # Kibana Query Language (KQL) Mastery Guide
 
+> Note: This guide is my own rephrased summary of KQL concepts, based on official Elastic references and lab-based training (including Hack The Box), organized for quick SOC reference.
+
 ## 1. Overview
 **KQL (Kibana Query Language)** is a syntax specifically designed for filtering data in Kibana. It is distinct from the Lucene Query Syntax and Elasticsearch Query DSL, offering a simpler, more intuitive experience for SOC analysts.
 

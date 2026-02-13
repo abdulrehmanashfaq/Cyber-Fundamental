@@ -1,5 +1,7 @@
 # Windows Event Monitoring & The Elastic Common Schema (ECS)
 
+> Note: These ECS and Windows logging notes are written in my own words, drawing on official Elastic/Winlogbeat documentation and security training content (including Hack The Box) as learning sources.
+
 ## 1. The Elastic Common Schema (ECS)
 **ECS** is an open source specification that defines a common set of document fields for data ingested into Elasticsearch.
 
