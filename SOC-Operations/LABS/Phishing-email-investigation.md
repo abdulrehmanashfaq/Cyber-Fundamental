@@ -1,4 +1,4 @@
-# Incident Investigation Report: PH-2026-001
+# Incident Investigation Report: 8818
 
 ## 1. Executive Summary
 * **Incident Classification:** True Positive
@@ -44,3 +44,52 @@
 4.  **Account Security:** Force an immediate password reset for user `j.garcia`.
 5.  **Endpoint Forensics:** Initiate a full EDR scan on the user's workstation to ensure no malicious scripts were executed during the browser session.
 6.  **Awareness:** Flag the user for "Just-in-Time" Phishing Awareness training
+
+
+
+# Incident Investigation Report: 8817
+
+## 1. Executive Summary
+* **Incident Classification:** True Positive
+* **Case Status:** Closed (Contained)
+* **Time of Activity:** 05/12/2026 17:32:55 (Detection)
+* **Verdict:** Phishing / Credential Harvesting Attempt
+* **Priority:** Medium (Blocked at Gateway)
+
+---
+
+## 2. Incident Analysis & Rationale
+* **Reason for Classification:** * **Typosquatting:** The sender domain `m1crosoftsupport.co` uses a '1' instead of an 'i', a classic sign of a malicious actor mimicking a legitimate brand (Microsoft).
+    * **Social Engineering:** The email uses a "Fear, Uncertainty, and Doubt" (FUD) tactic by claiming a login attempt from Nigeria to pressure the user into clicking a malicious link.
+* **Evidence of Triage:** Analysis of the link `https://m1crosoftsupport.co/login` confirms it leads to a fake login portal designed to steal user credentials.
+* **Firewall/Proxy Status:** Investigation of the network logs confirms that while the email was received, the firewall/proxy successfully prevented any outbound connection attempts to the malicious URL.
+
+---
+
+## 3. Affected Entities
+* **Targeted User:** `c.allen@thetrydaily.thm`
+* **Affected Systems:** None. The inbound threat was blocked/contained at the email gateway and proxy level.
+
+---
+
+## 4. List of Attack Indicators (IoCs)
+| Indicator Type | Value |
+| :--- | :--- |
+| **Sender Email** | `no-reply@m1crosoftsupport.co` |
+| **Malicious URL** | `https://m1crosoftsupport.co/login` |
+| **Reported Attacker IP** | `102.89.222.143` (Mentioned in content) |
+| **Subject Line** | `Unusual Sign-In Activity on Your Microsoft Account` |
+
+---
+
+## 5. Escalation & Closure
+* **Escalation Requirement:** **Yes.** * **Rationale for Escalation:** Even though the firewall blocked the connection, this alert must be escalated to ensure a global "search and purge" is conducted across the organization's mail server to protect other users who may have received the same email.
+* **Rationale for Closure:** The incident is marked as closed after confirming that no internal endpoints successfully communicated with the C2 domain and the malicious sender has been blacklisted.
+
+---
+
+## 6. Recommended Remediation Actions
+1.  **Blacklist Domain:** Add `m1crosoftsupport.co` to the organization's global blocklist.
+2.  **Email Purge:** Use the mail server admin tools to identify and delete this specific email from all employee inboxes.
+3.  **User Notification:** Inform `c.allen@thetrydaily.thm` about the blocked attempt and remind them to report similar emails via the "Report Phishing" button.
+4.  **Credential Monitoring:** As a precaution, monitor the user's account for any successful logins from unusual geo-locations for the next 24 hours
