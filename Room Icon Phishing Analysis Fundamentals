@@ -1,0 +1,54 @@
+# Email Security and Infrastructure: Technical Study Notes
+
+## Introduction to Email Threats
+**Spam** and **Phishing** remain the most common threats facing modern organizations. While spam is often low-risk, **Phishing** can trick users into disclosing sensitive information or unknowingly deploying malware. A single unsuspecting user who clicks a malicious link or opens an attachment can give an attacker an initial foothold in the network, leading to significant damage.
+
+As a defender, your role involves analyzing email components to determine if they are malicious or benign and gathering information to help harden security measures against future attacks.
+
+---
+
+## Structure of an Email Address
+Understanding the structure of an email address is critical; otherwise, you may overlook clues that attackers rely on for spoofing or obfuscation.
+
+* **Username:** The specific mailbox that identifies the recipient on the email server.
+* **@ Symbol:** Separates the username from the domain and instructs the system where to route the email.
+* **Domain Name:** Specifies the mail server responsible for receiving the message.
+
+### Example
+**`abdul.rehman@university.edu.pk`**
+* **Username:** `abdul.rehman`
+* **Domain:** `university.edu.pk`
+
+**Analogy:** Think of an email address like a physical home address:
+* The **Domain** is the street or apartment building (the location).
+* The **Username** is the specific person or mailbox within that location.
+
+---
+
+## Email Protocols
+Several protocols work behind the scenes to deliver messages, each with a specific functional role.
+
+### Sending (Outbound)
+* **SMTP (Simple Mail Transfer Protocol):** Think of this as the **Courier**. Its only job is to move the email from the sender to the server, and then from one server to another. It "pushes" the mail toward its destination.
+
+### Receiving (Inbound)
+* **POP3 (Post Office Protocol v3):** Think of this as a **Physical Mailbox**. You go to the post office, take your letters out, and bring them home. Once they are at your house, they are no longer at the post office (deleted from the server).
+* **IMAP (Internet Message Access Protocol):** Think of this as **Cloud Storage**. You can access your mail from any device. If you delete a message on your phone, it disappears from your laptop because the "master copy" remains synced on the server.
+
+---
+
+## The Journey: Step-by-Step
+
+### Phase A: Submission (User to Server)
+1.  **Client DNS Resolution:** The user's email client (e.g., Outlook) uses DNS to find the IP address of its own mail server (e.g., `smtp.gmail.com`).
+2.  **Upload:** The client connects to its server and uses **SMTP** to upload the message.
+
+### Phase B: Routing (Server to Server)
+3.  **The Decision Point:** The Sender's Server inspects the recipient's domain.
+    * **Scenario 1 (Same Server):** If the domain is internal, the server **skips DNS routing**. It simply moves the file to the recipient's local database or folder.
+    * **Scenario 2 (Different Servers):** The server queries DNS for the **MX (Mail Exchanger) Record** of the recipient's domain to find where to send the mail.
+4.  **Relay:** If the servers are different, the Sender's Server uses **SMTP** to "relay" the message across the internet to the Recipient's Mail Server.
+
+### Phase C: Retrieval (Server to Recipient)
+5.  **Storage:** The Recipient's Server stores the email in a "digital locker" (the Inbox).
+6.  **Final Delivery:** The recipient connects to their server. Depending on their configuration, they use **IMAP** (to sync) or **POP3** (to download) to finally read the message
