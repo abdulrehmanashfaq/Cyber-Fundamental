@@ -459,7 +459,7 @@ Dynamic analysis involves **executing** the file inside a highly controlled, iso
 | **Defeats Obfuscation?** | Partially | Yes — actual behavior is observed |
 | **Speed** | Fast | Slower; requires runtime observation |
 | **Best For** | Initial triage, hash lookups, string extraction | Behavioral profiling, C2 identification, persistence discovery |
-| **Limitation** | Obfuscated/packed malware may reveal little | Sandbox-aware malware may not execute fully |
+| **Limitation** | Obfuscated/packed malware may reveal little | Sandbox-aware malware may not execute fully |git
 
 ---
 
