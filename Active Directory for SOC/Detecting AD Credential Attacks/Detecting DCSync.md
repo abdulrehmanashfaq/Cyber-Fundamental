@@ -25,3 +25,9 @@ The detection signal is an Event 4662 with ``Access_Mask=0x100``, the replicatio
 ### Normal vs Suspicious Replication
 In a production environment with multiple domain controllers, Event 4662 events with replication GUIDs are completely normal. Domain controllers replicate constantly. The distinction between normal and malicious is the source, as shown in the diagram below:
 ![pic6](images/pic6.svg)
+| Pattern | Normal | Suspicious |
+| --- | --- | --- |
+| user | Machine account ending in $ (e.g., THM-DC$) | Human user account (not ending in $) |
+| Source host | Another domain controller | A workstation or non-DC server |
+| Frequency | Regular intervals matching replication schedule | One-time or burst of requests |
+| Scope | Specific partition changes | Requesting all credentials (-just-dc-ntlm or full dump) |
