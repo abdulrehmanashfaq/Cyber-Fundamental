@@ -1,0 +1,60 @@
+## Discovery and Resconnaissance
+As shown in the image below, when attackers first gain access to a network, they don't know what's in it. They don't know which servers exist, which accounts have elevated privileges, or how the network is organized. So the first thing they do is run commands to map everything out. This helps them understand the environment they've compromised, identify valuable targets, and plan their next move
+![pic](images/pic1.svg)
+
+### What Discovery Looks like
+Let's look at some Active Directory discovery commands commonly used in real-world attacks. The table below lists the commands you'll encounter most often:
+| Category | Command | What It Reveals |
+| --- | --- | --- |
+| Domain/Trust | `nltest /dclist:domain` | Domain controllers in the environment |
+| Domain/Trust | `nltest /domain_trusts` | Trusted domains the attacker could pivot to |
+| Accounts/Groups | `net user /domain` | All domain user accounts |
+| Accounts/Groups | `net group "Domain Admins" /domain` | Members of the Domain Admins group |
+| Accounts/Groups | `net group "Enterprise Admins" /domain` | Members of the Enterprise Admins group |
+| Accounts/Groups | `net localgroup administrators` | Local admin accounts on the current machine |
+| Systems | `net view` | Machines visible on the network |
+| Systems | `net view \THM-SHR-SRV /all` | Shares on a specific remote system |
+| PowerShell | `Get-ADUser -Filter *` | AD user enumeration via PowerShell |
+| PowerShell | `Get-ADGroupMember "Domain Admins"` | Admin group members via PowerShell |
+| PowerShell | `Get-ADComputer -Filter *` | All computer accounts in the domain |
+
+None of these commands requires admin privileges. Active Directory grants read access to all authenticated domain users by default, which means any compromised account, even one belonging to a marketing or HR user, can enumerate every user, group, trust, and machine in the domain. This is by design, not a misconfiguration, and it's one of the reasons lateral movement planning might sometimes be easy for attackers.
+
+The table above covers the most common built-in commands. Also, attackers use third-party tools like `adfind.exe` (heavily used by ransomware groups like Conti and FIN7), `dsquery`, and PowerShell's `[System.DirectoryServices.DirectorySearcher]` class for raw LDAP queries.
+
+**Volt Typhoon**, the Chinese state-sponsored group, is known for this exact approach. CISA advisory **AA24-038A** documents their heavy use of commands like `net user`, `nltest`, `netsh`, and `wmic` for discovery, a technique known as "living off the land" (LOTL). Native commands don't trigger antivirus and blend in with normal administrative activity, which is exactly why they work.
+
+### Detecting Discovery With Sysmon and PowerShell Logs
+
+We detect these commands through two log sources:
+
+* Sysmon Event 1 captures process creation, where the CMD/PowerShell commands appear in the command line.
+* PowerShell Event 4104 captures Script Block Logging, which records the PowerShell commands and cmdlets execute
+
+#### Scenario
+Let's say we want to investigate or hunt for Windows built-in discovery commands in our environment. We would start with Sysmon Event 1 to see what commands were executed:
+```splunk
+index=* EventCode=1
+| search CommandLine IN ("*nltest*", "*net * user*", "*net * group*", "*net * view*", "*net * localgroup*")
+| table _time, host, User, Image, CommandLine, ParentImage
+| sort _time
+```
+![pic2](images/pic2.png)
+
+The results show when the commands ran, what ``host`` they were executed on, and the ``User`` ``who`` ran them. The ``CommandLine`` field reveals what commands the attacker executed and what information they were after. 
+Seeing discovery commands executed on a workstation that isn't expected to have them executed in a specific time frame is highly likely to indicate malicious discovery activity. And always remember that "context is everything".
+
+We can apply the same idea here for PowerShell-based discovery, but by filtering for Event 4104 (Script Block Logging) captures PowerShell cmdlets:
+```splunk
+index=* EventCode=4104
+| search Message IN ("*Get-ADUser*", "*Get-ADGroupMember*", "*Get-ADComputer*")
+| table _time, Message
+| sort _time
+```
+![pic2](images/pic3.png)
+The ``Message`` field captures the full script block content, including the cmdlet and all its parameters.
+
+### Script Block Logging.
+Script Block Logging can generate a high volume of events, so some organizations enable it only on high-value targets or during active investigations. If it's not available, we can fall back to Sysmon process creation events (Event ID 1) or Windows Security process creation events (Event ID 4688) with command-line auditing enabled. The tradeoff is that Sysmon and 4688 capture the ``powershell.exe`` process launch, but if an attacker runs cmdlets interactively within a session, each individual cmdlet won't generate a separate process creation event. Script Block logging captures every command inside the session, regardless.
+
+Attackers sometimes encode or obfuscate discovery commands to evade detection rules. Base64-encoded Powershell (powershell -enc ...) or cmd.exe character escaping still generates a Sysmon Event 1 for the process creation, though the CommandLine may show the encoded form. Script Block Logging is more resilient here because PowerShell logs the decoded script block after it is processed
