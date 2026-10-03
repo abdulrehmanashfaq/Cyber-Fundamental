@@ -186,4 +186,23 @@ any where event.code == "4769" and
    - Never add service accounts to sensitive administrative groups (such as `Domain Admins` or `Account Operators`).
 5. **Decoy Accounts (Honeypot SPNs):**
    - Create a dummy domain user account with an attractive SPN (e.g., `MSSQLSvc/db-prod.corp.local`), grant it no permissions, and alert immediately on any Event 4769 generated against it.
+### Important Sql queries
+#### 1. Filtered RC4 TGS Requests Query (Targeting Non-Computer/Non-krbtgt Accounts)
 
+```splunk
+index=task2 EventCode=4769 Ticket_Encryption_Type=0x17 Service_Name!="*$" Service_Name!="krbtgt"
+| table _time, Account_Name, Service_Name, Ticket_Encryption_Type, Client_Address
+| sort _time
+```
+#### 2. Triage & Aggregation Query
+```splunk
+index=* EventCode=4769 Ticket_Encryption_Type=0x17 Service_Name!="*$" Service_Name!="krbtgt"
+| stats dc(Service_Name) as targeted_services count by Account_Name, Client_Address
+```
+#### 3. Volume-Based Anomaly Detection Query (Catching both RC4 and AES Kerberoasting)
+```splunk
+index=task2 EventCode=4769 Service_Name!="*$" Service_Name!="krbtgt"
+| bin _time span=5m
+| stats dc(Service_Name) as unique_spns count by Account_Name, Client_Address, _time
+| where unique_spns > 5
+```

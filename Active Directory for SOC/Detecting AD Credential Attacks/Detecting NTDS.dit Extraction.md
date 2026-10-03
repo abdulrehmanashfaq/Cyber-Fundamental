@@ -28,3 +28,25 @@ __Sysmon Event 1 (Process Creation)__ captures the full command line. The detect
 * ``ntdsutil.exe`` with a command line containing ifm and create
 * ``vssadmin.exe`` with a command line containing create shadow
 ``Sysmon Event 11`` (File Creation) captures when ``ntds.dit`` is written to an unusual location by ``ntdsutil.exe``
+
+### Important spl queries.
+#### 1. Detect `ntdsutil.exe` Execution (IFM Method)
+```splunk
+index=* EventCode=1 Image="*\\ntdsutil.exe" 
+| table _time, host, User, ParentImage, Image, CommandLine
+```
+#### 2. Track ntds.dit File Creation on Disk (Sysmon Event ID 11)
+```splunk
+index=* EventCode=11 TargetFilename="*ntds.dit" Image="*\\ntdsutil.exe" 
+| table _time, Image, TargetFilename
+```
+#### 3. Detect Volume Shadow Copy Creation via vssadmin
+```splunk
+index=* EventCode=1 Image="*\\vssadmin.exe" CommandLine="*create shadow*" 
+| table _time, host, User, ParentImage, Image, CommandLine
+```
+#### 4. Detect Copying ntds.dit or SYSTEM Hive from Shadow Copies
+```splunk
+index=* EventCode=1 CommandLine="*HarddiskVolumeShadowCopy*" (CommandLine="*ntds*" OR CommandLine="*SYSTEM*") 
+| table _time, host, User, ParentImage, Image, CommandLine
+````

@@ -31,3 +31,21 @@ In a production environment with multiple domain controllers, Event 4662 events 
 | Source host | Another domain controller | A workstation or non-DC server |
 | Frequency | Regular intervals matching replication schedule | One-time or burst of requests |
 | Scope | Specific partition changes | Requesting all credentials (-just-dc-ntlm or full dump) |
+
+### Important Splunk Queries.
+#### 1. Primary DCSync Detection Query (Non-Machine Account Replication)
+```splunk
+index=* EventCode=4662 "1131f6ad" user!="*$"
+| table _time, user, Access_Mask, Properties
+| sort _time
+```
+#### 2. Extract Session Logon_ID for Source IP Correlation
+```splunk
+index=task5 EventCode=4662 Access_Mask=0x100 user="{COMPROMISED_USER}" "1131f6ad"
+| table _time, host, user, Logon_ID
+```
+#### 3. Correlate Logon_ID to Retrieve Source Network Address (Event Code 4624)
+```splunk
+index=task5 EventCode=4624 Logon_ID="{LOGON_ID}"
+| table _time, host, user, Source_Network_Address, Logon_Type
+```

@@ -89,3 +89,16 @@ Table of those legimate DLL's working that are used in Procdump
 | **`KERNEL32.DLL`** / **`KERNELBASE.dll`** | `C:\Windows\System32\KERNEL32.DLL` | Core Windows OS libraries providing standard process management APIs (such as `OpenProcess`). | **Normal System Component** — Essential subsystem libraries used by binaries to request handle permissions from Windows. |
 | **`dbgcore.dll`** / **`dbghelp.dll`** | `C:\Windows\System32\dbgcore.dll` | Windows Debugging Core Library containing the built-in `MiniDumpWriteDump` API[cite: 7]. | **Key Indicator** — Its presence in a call trace targeting `lsass.exe` reveals the MiniDump API was used to extract LSASS memory (e.g., via ProcDump or `comsvcs.dll`)[cite: 7]. |
 | **`UNKNOWN`** *(Not a DLL)* | Memory-only address (e.g., `UNKNOWN(00000...)`) | Indicates code executing directly out of dynamically allocated/unbacked memory space[cite: 7]. | **CRITICAL / Malicious** — Points to in-memory process injection, C2 beacons (like Cobalt Strike or Meterpreter), or raw shellcode execution without a file on disk[cite: 7]. | 
+
+### Important Splunk queries 
+#### 1. Broad LSASS Access Overview Query
+
+```splunk
+index=* EventCode=10 TargetImage="*\\lsass.exe"
+| stats count by SourceImage, GrantedAccess
+```
+#### 2. Detailed CallTrace and Context Inspection Query for Suspicious Processes
+```splunk
+index=* EventCode=10 TargetImage="*\\lsass.exe" SourceImage="{SUSPICIOUS_PROCESS}"
+| table _time, SourceImage, SourceUser, GrantedAccess, CallTrace
+```

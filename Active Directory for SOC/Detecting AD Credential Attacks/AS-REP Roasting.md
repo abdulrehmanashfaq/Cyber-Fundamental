@@ -193,3 +193,22 @@ authentication where event.code == "4768" and
 5. **Enable MFA:**
    - Multi-Factor Authentication prevents attackers from utilizing cracked credentials at network and identity perimeters.
 
+### Important Splunk queries
+#### 1. Initial Inspection of TGT Requests (Event Code 4768)
+
+```splunk
+index=* EventCode=4768
+| table _time, Account_Name, Pre_Authentication_Type, Ticket_Encryption_Type, Client_Address
+| sort _time
+```
+#### 2. Isolate AS-REP Roasting Anomaly (Pre_Authentication_Type=0)
+```splunk
+index=* EventCode=4768 Pre_Authentication_Type=0
+| table _time, Account_Name, Pre_Authentication_Type, Ticket_Encryption_Type, Client_Address
+```
+#### 3. Verify Follow-Up Authentication Activity (Correlate Event 4624 / 4769)
+```splunk
+index=task3 (EventCode=4624 OR EventCode=4769)
+| search Account_Name="{ACCOUNT_NAME}"
+| table _time, EventCode, Account_Name, Client_Address
+```
