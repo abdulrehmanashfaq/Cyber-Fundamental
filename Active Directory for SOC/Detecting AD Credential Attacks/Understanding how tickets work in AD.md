@@ -1,5 +1,7 @@
 # Study Notes: Understanding How Kerberos Tickets Work in Active Directory
 
+> Read [Detection Caveats and Room Guide](Detection%20Caveats%20and%20Room%20Guide.md) alongside this note for field, correlation, and interpretation clarifications.
+
 ## 1. Overview & Architectural Foundation
 Active Directory Domain Services (AD DS) relies on **Kerberos Version 5 (RFC 4120)** as its default and primary authentication protocol. Unlike legacy protocols such as NTLM—which rely on challenge-response handshakes—Kerberos uses a **ticket-based system** powered by symmetric key cryptography and a trusted third party.
 

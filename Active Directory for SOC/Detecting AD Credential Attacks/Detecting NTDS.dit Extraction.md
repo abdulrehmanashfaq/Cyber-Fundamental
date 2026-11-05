@@ -1,3 +1,7 @@
+# Detecting NTDS.dit Extraction
+
+> Read [Detection Caveats and Room Guide](Detection%20Caveats%20and%20Room%20Guide.md) alongside this note for field, correlation, and interpretation clarifications.
+
 DCSync works remotely and blends in with replication traffic. But it's not the only way attackers extract credentials from Active Directory. Before DCSync became the standard, attackers copied the ``NTDS.dit`` file directly from the domain controller. This older approach is noisier, but it's still actively used in real intrusions.
 ## How NTDS.dit Extraction Works
 The ``NTDS.dit`` file is the Active Directory database stored on every domain controller (typically at ``C:\Windows\NTDS\ntds.dit``). It contains password hashes for every account in the domain. The problem for attackers is that Windows locks this file while AD DS is running, so it can't be copied directly. Attackers use two main workarounds:
@@ -19,7 +23,7 @@ C:\Windows\System32> ntdsutil "ac i ntds" "ifm" "create full C:\temp" q q
 ```
 Both methods require privileged access on the domain controller. ``vssadmin`` needs local admin rights, while ``ntdsutil`` requires Domain Admin or equivalent AD DS permissions. Both produce the same result: an offline copy of the AD database that can be parsed with tools like ``secretsdump.py`` or ``NTDSDumpEx`` to extract all password hashes. The diagram below shows both extraction paths:
 ![pic7](images/pic7.svg)
-#### Detecting NTDS.dit Extraction=
+#### Detecting NTDS.dit Extraction
 
 NTDS.dit extraction is detected through process creation events. We're looking for vssadmin.exe or ntdsutil.exe being executed on a domain controller with command-line arguments related to shadow copies or IFM.
 
@@ -49,4 +53,4 @@ index=* EventCode=1 Image="*\\vssadmin.exe" CommandLine="*create shadow*"
 ```splunk
 index=* EventCode=1 CommandLine="*HarddiskVolumeShadowCopy*" (CommandLine="*ntds*" OR CommandLine="*SYSTEM*") 
 | table _time, host, User, ParentImage, Image, CommandLine
-````
+```

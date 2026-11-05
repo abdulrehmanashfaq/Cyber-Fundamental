@@ -1,5 +1,8 @@
-## Detecting LASASS Credential Dumping/
-So far, we've been working with Kebros events on the domain controller to detect attacks that crack passwords offline.LSASS dumping is different. It's a direct credential theft technique that happens on the endpoint where the credentials are stored, and detecting it requires a completely different approach.
+# Detecting LSASS Credential Dumping
+
+> Read [Detection Caveats and Room Guide](Detection%20Caveats%20and%20Room%20Guide.md) alongside this note for field, correlation, and interpretation clarifications.
+
+So far, we've been working with Kerberos events on the domain controller to detect attacks that crack passwords offline.LSASS dumping is different. It's a direct credential theft technique that happens on the endpoint where the credentials are stored, and detecting it requires a completely different approach.
 
 Attackers target LSASS (Local Security Authority Subsystem Service) because it stores credentials for every user who has authenticated to the machine. If a domain admin logged into a workstation earlier that day, their NTLM hash and Kerberos tickets are sitting in LSASS memory. An attacker who dumps LSASS on that machine gets those credentials immediately, no cracking required.
 
@@ -88,7 +91,7 @@ Table of those legimate DLL's working that are used in Procdump
 | **`ntdll.dll`** | `C:\Windows\System32\ntdll.dll` | NT Layer DLL that handles user-mode execution and translates API requests into kernel-mode system calls (`syscall`). | **Normal System Component** — Appears at the top/bottom of almost every call trace as it bridges user code to the Windows kernel. |
 | **`KERNEL32.DLL`** / **`KERNELBASE.dll`** | `C:\Windows\System32\KERNEL32.DLL` | Core Windows OS libraries providing standard process management APIs (such as `OpenProcess`). | **Normal System Component** — Essential subsystem libraries used by binaries to request handle permissions from Windows. |
 | **`dbgcore.dll`** / **`dbghelp.dll`** | `C:\Windows\System32\dbgcore.dll` | Windows Debugging Core Library containing the built-in `MiniDumpWriteDump` API[cite: 7]. | **Key Indicator** — Its presence in a call trace targeting `lsass.exe` reveals the MiniDump API was used to extract LSASS memory (e.g., via ProcDump or `comsvcs.dll`)[cite: 7]. |
-| **`UNKNOWN`** *(Not a DLL)* | Memory-only address (e.g., `UNKNOWN(00000...)`) | Indicates code executing directly out of dynamically allocated/unbacked memory space[cite: 7]. | **CRITICAL / Malicious** — Points to in-memory process injection, C2 beacons (like Cobalt Strike or Meterpreter), or raw shellcode execution without a file on disk[cite: 7]. | 
+| **`UNKNOWN`** *(Not a DLL)* | Memory-only address (e.g., `UNKNOWN(00000...)`) | Indicates code executing directly out of dynamically allocated/unbacked memory space[cite: 7]. | **Investigate** — Unresolved frames can be associated with unbacked code or injection, but are not conclusive evidence of malware on their own. | 
 
 ### Important Splunk queries 
 #### 1. Broad LSASS Access Overview Query

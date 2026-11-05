@@ -1,11 +1,13 @@
 # Technical Study Guide: Kerberoasting Attack & Detection
 
+> Read [Detection Caveats and Room Guide](Detection%20Caveats%20and%20Room%20Guide.md) alongside this note for field, correlation, and interpretation clarifications.
+
 ## 1. Executive Summary & Attack Concept
 **Kerberoasting** is an authenticated post-exploitation technique categorized under **MITRE ATT&CK [T1558.003](https://attack.mitre.org/techniques/T1558/003/) (Steal or Forge Kerberos Tickets: Kerberoasting)**. 
 
 In an Active Directory domain, any authenticated domain account (even the lowest-privileged domain user) can query the Key Distribution Center (KDC) and request a **Kerberos Service Ticket (TGS)** for any service registered with a **Service Principal Name (SPN)**. 
 
-Because the KDC encrypts the core part of the Service Ticket using the **NTLM password hash of the account running that service**, an attacker can extract that encrypted ticket and crack it **completely offline**. The attacker never sends cracking attempts to the Domain Controller, meaning **account lockout policies and failed logon alarms (Event 4625) are never triggered**.
+Because the KDC encrypts the service ticket using a **long-term key belonging to the account running that service** (the NT hash for RC4; a different password-derived key for AES), an attacker can extract that encrypted ticket and crack it **completely offline**. The attacker never sends cracking attempts to the Domain Controller, meaning **account lockout policies and failed logon alarms (Event 4625) are never triggered**.
 
 ```text
                                KERBEROASTING FLOW
@@ -51,7 +53,7 @@ Kerberoasting takes advantage of two core design principles of the Kerberos prot
 
 The diagram below outlines the operational differences between Kerberoasting and AS-REP Roasting:
 
-![Kerberoasting vs AS-REP Roasting Comparison](pic1.svg)
+![Kerberoasting vs AS-REP Roasting Comparison](images/pic1.svg)
 
 | Feature | Kerberoasting | AS-REP Roasting |
 | :--- | :--- | :--- |
@@ -116,7 +118,7 @@ On Domain Controllers, ticket requests generate **Windows Event ID 4769**: *A Ke
 
 ### Key Fields in Event ID 4769:
 1. **Target Service Information:**
-   - `Service Name`: The SPN name.
+   - `Service Name`: The service account name in many Windows event versions; do not assume this field contains the full requested SPN.
    - `Service ID`: The SID of the service account.
    - *Filter Rule:* Exclude service names ending in `$` (normal machine access) and exclude `krbtgt` (normal TGT renewals). Focus on user service accounts.
 2. **Ticket Options & Encryption:**
@@ -176,7 +178,7 @@ any where event.code == "4769" and
 ## 7. Prevention & Hardening Recommendations
 
 1. **Migrate to Group Managed Service Accounts (gMSA):**
-   - gMSAs delegate password management to the Domain Controller, automatically rotating complex 128-character passwords every 30 days. They are impervious to offline dictionary attacks.
+   - gMSAs delegate password management to the Domain Controller, automatically rotating complex 128-character passwords every 30 days. Their long, random managed passwords make practical password guessing far less feasible; this does not prevent every form of account compromise.
 2. **Enforce AES Encryption for Kerberos:**
    - Configure Active Directory user accounts to support AES128 and AES256 (`msDS-SupportedEncryptionTypes` attribute set to `24` or `0x18`).
    - Disable RC4 domain-wide where possible.

@@ -1,5 +1,7 @@
 # Technical Study Guide: AS-REP Roasting Attack & Behavioral Detection
 
+> Read [Detection Caveats and Room Guide](Detection%20Caveats%20and%20Room%20Guide.md) alongside this note for field, correlation, and interpretation clarifications.
+
 ## 1. Executive Summary & Attack Concept
 **AS-REP Roasting** is an initial access and credential access technique categorized under **MITRE ATT&CK [T1558.004](https://attack.mitre.org/techniques/T1558/004/) (Steal or Forge Kerberos Tickets: AS-REP Roasting)**.
 

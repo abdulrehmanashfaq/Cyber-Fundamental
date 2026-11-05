@@ -160,3 +160,111 @@ This scenario highlights why DKIM is mandatory alongside SPF. Email forwarding i
 
 ### Conclusion:
 Because **DKIM passed**, Yahoo knows the content is genuine and untampered, safely overriding the SPF failure caused by the forwarding middleman and delivering the email to the inbox.
+
+# Study Notes: DMARC (Domain-based Message Authentication, Reporting, and Conformance)
+
+## 1. What is DMARC?
+**DMARC** is an email authentication management protocol that sits directly on top of **SPF** and **DKIM**. 
+
+While SPF and DKIM act as foundational security guards verifying background technical fields, DMARC acts as the **security manager**. It establishes strict operational rules for the domain, ensures the visible identity matches the technical checks, and instructs recipient servers exactly how to handle unauthorized messages.
+
+---
+
+## 2. The Core Problem DMARC Solves: The Display Name Loophole
+Before DMARC, an attacker could set up a malicious mail server, buy a random domain (e.g., `scamserver.net`), and configure valid SPF and DKIM settings for that domain. 
+
+Using raw SMTP commands, they could still forge the human-readable header to read:
+`From: Support <billing@securebank.com>`
+
+Without DMARC, the receiving server would run checks against the background domain (`scamserver.net`), log an **SPF PASS** and **DKIM PASS**, and deliver the phishing email straight to the victim's inbox displaying the forged bank identity. DMARC was explicitly invented to close this visual spoofing loophole.
+
+---
+
+## 3. The Concept of Alignment
+To prevent attackers from using valid background credentials to spoof a visible identity, DMARC introduces the rule of **Alignment**. DMARC mandates that the domain visible to the human reader in the **`From:`** header must match (align with) the domains authenticated by the background technical protocols.
+
+* **SPF Alignment:** The domain found in the technical return-path (used by SPF to check server IPs) must match the domain visible to the user in the `From:` header.
+* **DKIM Alignment:** The domain specified in the cryptographic signature's identity tag (`d=`) must match the domain visible to the user in the `From:` header.
+
+### DMARC Pass Evaluation:
+For an email to achieve a **DMARC PASS**, the message must pass at least one of the underlying protocols (SPF or DKIM), and that passing protocol **must align** with the visible identity. If an attacker spoof the visible domain, the technical alignment breaks, triggering a **DMARC FAIL**.
+
+---
+
+## 4. The Three DMARC Policies (`p=`)
+When an email fails DMARC alignment, the domain owner does not leave the final outcome to chance. They publish a specific policy instruction inside their public DNS records, dictating the enforcement level:
+
+1. **`p=none` (Monitoring Mode):**
+   * **Action:** The email is delivered to the recipient's primary inbox as normal, even if it fails alignment.
+   * **Purpose:** Used as a testing phase to gather data and verify that legitimate third-party services (like HR or marketing tools) are configured correctly before turning on enforcement.
+2. **`p=quarantine` (Soft Enforcement):**
+   * **Action:** The email is redirected away from the primary inbox and dropped directly into the recipient's **Spam/Junk folder**.
+   * **Purpose:** Acts as a safety net to mitigate threat impact while still allowing access to mail if a legitimate internal system was accidentally misconfigured.
+3. **`p=reject` (Hard Enforcement):**
+   * **Action:** The receiving server blocks the email completely at the gateway layer. The connection is dropped, and the message is **permanently deleted** before it ever reaches the user.
+   * **Purpose:** Provides the maximum possible level of security, completely neutralizing phishing and identity spoofing attempts by removing the human element from the equation.
+
+---
+
+## 5. Deconstructing a DMARC DNS Record
+DMARC is deployed as a public plain text **TXT record** on a dedicated subdomain path: `_dmarc.yourdomain.com`.
+
+### Example Record:
+```text
+Host/Name: _dmarc.securebank.com
+Value: v=DMARC1; p=reject; pct=100; rua=mailto:reports@securebank.com
+```
+
+* **`v=DMARC1`**: Specifies the protocol version framework.
+* **`p=reject`**: The enforcement policy rule applied to failing streams (can be `none`, `quarantine`, or `reject`).
+* **`pct=100`**: Percentage of failing emails subject to the policy rule (100% means full application).
+* **`rua=mailto:...`**: Reporting URI for **Aggregate reports**. This instructs global mail networks (Google, Yahoo, Microsoft) to automatically send daily XML diagnostic data back to the domain owner, listing every IP address on Earth that attempted to send mail using their domain identity.
+
+---
+
+ Comprehensive Guide to S/MIME and Email Security
+
+## 1. Core Principles of S/MIME
+* **OSI Layer:** Operates at the **Application Layer (Layer 7)**, providing true End-to-End (E2E) protection.
+* **Cryptographic Foundation:** Relies on **Asymmetric Cryptography** (Public/Private key pairs) managed by a trusted third-party **Certificate Authority (CA)** using X.509 Digital Certificates.
+* **Core Rule of Asymmetric Math:**
+  * Data encrypted with a *Public Key* $\rightarrow$ Can **only** be decrypted by the matching *Private Key*.
+  * Data encrypted with a *Private Key* $\rightarrow$ Can **only** be decrypted by the matching *Public Key*.
+
+---
+
+## 2. The Twin Pillars of S/MIME Functions
+A user can choose to sign, encrypt, or execute both simultaneously.
+
+### Pillar A: Digital Signatures (Identity & Integrity)
+* **Purpose:** Proves exactly who sent the email (**Authentication/Non-repudiation**) and guarantees the text was not modified in transit (**Integrity**).
+* **The Process:**
+  1. Sender's client hashes the plaintext message body (e.g., via SHA-256).
+  2. Client encrypts the hash using the sender's **Personal Private Key**. This forms the digital signature.
+  3. The signature and the sender's Public Key Certificate are bundled into an `smime.p7s` file via a `multipart/signed` MIME infrastructure and sent.
+  4. Recipient's client uses the sender's **Public Key** to decrypt the signature hash and matches it against a freshly calculated hash of the received text.
+
+### Pillar B: End-to-End Encryption (Confidentiality)
+* **Purpose:** Ensures absolute privacy. Intermediate mail servers (Google, Microsoft), network sniffers, and ISPs see nothing but unreadable ciphertext.
+* **The Prerequisites:** The sender must already possess the recipient's Public Key Certificate (typically cached automatically after receiving a signed email from them).
+* **The Process:**
+  1. Sender selects "Encrypt" in their client.
+  2. Client fetches the **Recipient's Public Key** from the local address book cache.
+  3. Client scrambles the plaintext message into ciphertext.
+  4. The email travels and sits *at rest* on intermediate servers as encrypted garbage data.
+  5. Recipient's client uses their own **Personal Private Key** to decrypt and read the message.
+
+---
+
+## 3. Real-World Defense-in-Depth Email Architecture
+In enterprise environments, security is deployed in nested, multi-layered stacks wrapping data multiple times.
+
+### The Multi-Layer Pipeline:
+1. **SPF (Sender Policy Framework):** Network-level verification. Validates whether the sending server's IP address is authorized to send mail for the domain.
+2. **DKIM (DomainKeys Identified Mail):** Infrastructure-level cryptography. The outbound organization gateway server signs headers to prove domain authenticity.
+3. **DMARC (Domain-based Message Authentication, Reporting, and Conformance):** Alignment and enforcement policy. Checks that visual headers match SPF/DKIM data and instructs recipient gateways to accept, quarantine, or reject failures.
+4. **S/MIME:** Application-layer user security. Binds individual human identity and wraps the data payload itself, independent of mail servers.
+
+### Architectural Distinctions:
+* **DKIM vs. S/MIME:** DKIM keys live on the organizational **mail server** to validate the domain, while S/MIME keys live on the user's **endpoint device** to validate the individual persona.
+* **TLS vs. S/MIME:** TLS encrypts the network pipe (**Data in Transit / Hop-by-Hop**), meaning the email sits in plain text once it lands on the provider's server. S/MIME encrypts the file object itself (**Data at Rest & Transit / End-to-End**), keeping it secure even if a mail server database is completely breached.

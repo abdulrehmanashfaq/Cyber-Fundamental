@@ -1,4 +1,7 @@
 ## Detecting DCSync
+
+> Read [Detection Caveats and Room Guide](Detection%20Caveats%20and%20Room%20Guide.md) alongside this note for field, correlation, and interpretation clarifications.
+
 Imagine the attacker has Domain Admin credentials. Maybe they cracked a Kerberoasted service account that happened to be a Domain Admin, or they dumped LSASS on a machine where a Domain Admin had an active session. Either way, they now have the highest level of access in the domain. The question is what they do with it
 Attackers target DCSync because it lets them extract every password hash in the domain without touching the domain controller's disk, without creating volume shadow copies, and without needing physical access to the DC . It works by abusing the Active Directory replication protocol (DRSUAPI), the same protocol that legitimate domain controllers use to synchronize directory data with each other. The attacker's machine pretends to be a domain controller and requests password data via DRSUAPI. If their account has the right permissions, the real DC complies. Domain Admins, Enterprise Admins, and DC machine accounts have these replication rights by default.
 In some environments, attackers can also obtain replication ACL rights through abuse (WriteDACL on the domain object) without ever joining the Domain Admins group.
